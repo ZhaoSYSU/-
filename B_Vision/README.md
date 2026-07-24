@@ -5,7 +5,7 @@
 | 文件 | 用途 |
 |------|------|
 | `vision_line.py` | **⭐ 主程序**：快通道巡线+轨道类型(CV) + 慢通道数字识别(KPU) + UART通信 |
-| `vision_full.py` | 备份：双识别器版本（无巡线功能） |
+| `backup_vision.py` | 备份：双识别器版本（无巡线功能） |
 | `yolo_marble.py` | 钢珠检测 |
 | `yolo_number.py` | YOLO数字检测 |
 | `clean_features.py` | 删除特征文件，重新训练前运行 |

@@ -6,13 +6,13 @@
 /
 ├── B_Vision/              # K230D 视觉模块
 │   ├── vision_line.py     # 主程序（巡线 + 数字识别 + UART通信）
-│   ├── vision_full.py     # 备份方案（双KPU识别器，无巡线）
+│   ├── backup_vision.py   # 备份方案（双KPU识别器，无巡线）
 │   ├── yolo_marble.py     # 钢珠检测
 │   ├── yolo_number.py     # YOLO数字检测（需训练kmodel）
 │   └── clean_features.py  # 重训练前清理特征文件
 │
 └── A_Driver/              # MSPM0G3507 底层驱动
-    ├── empty.c            # 主程序（UART帧接收 + 巡线控制 + OLED）
+    ├── main.c             # 主程序（UART帧接收 + 巡线控制 + OLED）
     ├── empty.syscfg       # SysConfig 配置
     ├── motor.c / motor.h  # 双路直流电机驱动 + PI速度环
     ├── encoder.c / encoder.h  # 编码器测速 + UART帧超时

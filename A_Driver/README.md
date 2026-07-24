@@ -4,7 +4,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `empty.c` | 主程序：UART 中断接收 + K230 帧解析 + 巡线差速控制 + OLED 显示 |
+| `main.c` | 主程序：UART 中断接收 + K230 帧解析 + 巡线差速控制 + OLED 显示 |
 | `empty.syscfg` | SysConfig 图形化配置，用 CCS 打开可编辑 |
 | `ti_msp_dl_config.c/.h` | SysConfig 自动生成的初始化代码 |
 | `motor.c/.h` | 双路直流电机驱动（TB6612FNG）+ 增量式 PI 速度环 |
