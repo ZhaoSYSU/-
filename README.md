@@ -83,18 +83,43 @@ CHECKSUM = (CMD + DH + DL) & 0xFF
 
 ### K230 (CanMV IDE)
 1. IDE 打开 `B_Vision/vision_line.py`
-2. 首次/重训: 先跑 `clean_features.py`
-3. 运行 `vision_line.py`, LCD 应看到摄像头画面 + 巡线状态
+2. 首次/重训: 先跑 `clean_features.py`，再跑 `vision_line.py` 训练数字特征
+3. 推理模式: LCD 显示摄像头画面 + 蓝色数字框 + 巡线状态
+
+#### 比赛部署（脱离 IDE）
+1. 训练完成后，确认 `/sdcard/features_digit/` 有 24 个 `.bin` 文件
+2. 把 `vision_line.py` 复制到 K230 的 `/sdcard/`，改名为 `main.py`
+3. 上电即自动运行，全程无需 IDE
+4. 恢复开发模式: 删除 `main.py`，IDE 运行键恢复绿色
 
 ### MSPM0 (CCS)
-1. CCS 打开工程 (workspace_ccstheia)
-2. 编译前把 `A_Driver/` 下的改动拷到 CCS 工程目录
-3. SysConfig 改了也要拷回 E 盘仓库
+1. 用 `A_Driver/empty.syscfg` 创建 CCS 工程（或导入到已有工程）
+2. 将 `A_Driver/` 下所有 `.c/.h` 文件添加到工程
+3. SysConfig 修改后，生成的 `ti_msp_dl_config.c/.h` 位于 `Debug/` 目录，需拷回 `A_Driver/` 提交到仓库
 4. 编译 → 烧录
+
+> 注意：CCS 工程是源文件的独立副本，Git 仓库（`A_Driver/`）是唯一真源。改代码在仓库里改，编译前同步到 CCS 工程。
 
 ### 联调
 1. 接好 UART 线 (K230 GPIO40/41 ↔ MSPM0 PA8/PA9)
 2. K230 先跑 `vision_line.py`
 3. MSPM0 上电，OLED 第三行应显示 `D: N: T:`
 4. K230 前放数字卡，OLED 上 `N:` 应变
-5. 上赛道调 `kBaseSpeed` / `kTurnGain`
+5. 上赛道调参: `kBaseSpeed` / `kTurnGain` / `kTurnDurMs` / `kTurnSpeedL` / `kTurnSpeedF`
+
+## 控制模式
+
+| 模式 | 触发 | 逻辑 |
+|------|------|------|
+| 巡线 MODE_LINE | 默认 | `左轮=base + dev×gain`, `右轮=base - dev×gain` |
+| 丢线 | CMD 0x03 status=2 | 停车 |
+| 转弯 MODE_TURN | CMD 0x04 track≠0 | 固定差速 500ms，结束后恢复巡线 |
+
+## OLED 显示
+
+```
+V A: 00040    ← 电机A 速度 mm/s
+V B: 00040    ← 电机B 速度 mm/s
+D:+03 N:3 T<  ← 偏差+03 / 数字3 / 左转中
+                末尾: <左转 >右转 !丢线
+```

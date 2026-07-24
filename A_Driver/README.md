@@ -86,13 +86,28 @@ K230 帧格式: [0xAA][CMD][DH][DL][CS][0x55]
 超时: TIMG12 每 1ms 检查，10ms 收不齐帧则丢弃重找帧头
 ```
 
-## OLED 显示内容
+## 控制模式
+
+| 模式 | 触发 | 逻辑 |
+|------|------|------|
+| MODE_LINE (巡线) | 默认 | `左轮=base + dev×gain`, `右轮=base - dev×gain` |
+| 丢线停车 | CMD 0x03 status=2 | 两轮速度=0 |
+| MODE_TURN (转弯) | CMD 0x04 track≠0 | 固定差速 500ms，结束后恢复巡线 |
+
+转弯参数（`empty.c`）:
+```c
+kTurnDurMs  = 500;  // 转弯持续 ms
+kTurnSpeedL = 15;   // 慢轮速度 mm/s
+kTurnSpeedF = 45;   // 快轮速度 mm/s
+```
+
+## OLED 显示
 
 ```
 V A: 00040    ← 电机A 速度 mm/s
 V B: 00040    ← 电机B 速度 mm/s
-D:+03 N:3 TS  ← 偏差+03 / 数字3 / 轨道Straight
-               末尾 ! 表示丢线
+D:+03 N:3 T<  ← 偏差+03 / 数字3 / 左转中
+                末尾: <左转 >右转 !丢线
 ```
 
 ## 引脚接线

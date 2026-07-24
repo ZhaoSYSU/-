@@ -196,6 +196,16 @@ int main(void)
     const int32_t kBaseSpeed = 40;    /* 直走基速 mm/s */
     const int32_t kTurnGain  = 2;     /* 偏差增益: 每像素偏差 → mm/s 差速 */
 
+    /* 转弯策略（开环差速，现场可改硬编码或换PID） */
+    const int32_t kTurnDurMs  = 500;  /* 转弯持续时间 ms */
+    const int32_t kTurnSpeedL = 15;   /* 转弯慢轮速度 mm/s */
+    const int32_t kTurnSpeedF = 45;   /* 转弯快轮速度 mm/s */
+
+    typedef enum { MODE_LINE = 0, MODE_TURN } DriveMode;
+    DriveMode mode = MODE_LINE;
+    uint32_t   turn_start_tick = 0;
+    bool       turn_left = false;
+
     while (1) {
         /* ---- OLED 显示 ---- */
         OLED_Clear();
@@ -252,14 +262,15 @@ int main(void)
                 else if (gVis.track > 0)  { vbuf[i++]='R'; }
                 else                       { vbuf[i++]='-'; }
                 vbuf[i++] = ' ';
-                vbuf[i++] = gVis.status==2 ? '!' : ' ';
+                vbuf[i++] = (mode == MODE_TURN) ? (turn_left ? '<' : '>') :
+                           gVis.status==2 ? '!' : ' ';
                 vbuf[i] = 0;
                 OLED_ShowString(3, 0, vbuf);
             }
         }
         OLED_Refresh();
 
-        /* ---- 消费视觉数据（关中断做原子拷贝，避免读到半帧） ---- */
+        /* ---- 消费视觉数据（关中断做原子拷贝） ---- */
         {
             NVIC_DisableIRQ(UART_0_INST_INT_IRQN);
             VisionData vis = gVis;
@@ -267,22 +278,56 @@ int main(void)
             gVisUpdated = false;
             NVIC_EnableIRQ(UART_0_INST_INT_IRQN);
 
-            if (is_updated) {
-                if (vis.status == 2) {
-                    Motor_SetTarget(MOTOR_A, 0);
-                    Motor_SetTarget(MOTOR_B, 0);
+            /* 丢线 → 停车 */
+            if (vis.status == 2) {
+                Motor_SetTarget(MOTOR_A, 0);
+                Motor_SetTarget(MOTOR_B, 0);
+                mode = MODE_LINE;
+                goto motor_done;
+            }
+
+            /* 路口转弯 → 进入转弯模式 */
+            if (vis.new_track && vis.track != 0) {
+                turn_left = (vis.track < 0);   /* 负值=左转 */
+                turn_start_tick = 0;            /* 用主循环迭代计数 */
+                mode = MODE_TURN;
+                vis.new_track = false;
+            }
+
+            /* 状态机 */
+            switch (mode) {
+            case MODE_TURN:
+                turn_start_tick++;
+                /* 固定差速转弯（开环，持续 kTurnDurMs/40 次迭代） */
+                if (turn_start_tick < (kTurnDurMs / 40)) {
+                    if (turn_left) {
+                        Motor_SetTarget(MOTOR_A, kTurnSpeedL);
+                        Motor_SetTarget(MOTOR_B, kTurnSpeedF);
+                    } else {
+                        Motor_SetTarget(MOTOR_A, kTurnSpeedF);
+                        Motor_SetTarget(MOTOR_B, kTurnSpeedL);
+                    }
                 } else {
+                    mode = MODE_LINE;   /* 转弯结束，恢复巡线 */
+                }
+                goto motor_done;
+
+            case MODE_LINE:
+            default:
+                if (is_updated) {
                     int32_t diff = vis.deviation * kTurnGain;
                     Motor_SetTarget(MOTOR_A, kBaseSpeed + diff);
                     Motor_SetTarget(MOTOR_B, kBaseSpeed - diff);
                 }
+                break;
             }
+motor_done:
 
             if (vis.new_digit) {
                 // TODO: 状态机判断是否目标病房
             }
             if (vis.new_track) {
-                // TODO: 触发转弯/直行决策
+                // TODO: 触发转弯决策（已在上面处理）
             }
         }
 

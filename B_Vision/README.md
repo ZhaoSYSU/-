@@ -12,15 +12,23 @@
 
 ## 快速开始
 
-1. 首次/重训：IDE 运行 `clean_features.py` → `vision_line.py`
-2. 已有特征：直接运行 `vision_line.py`
-3. 训练完成后自动进入推理模式，K230 LCD 和 IDE 帧缓冲区同步显示
+## 快速开始
+
+1. 首次/重训：IDE 运行 `clean_features.py` → `vision_line.py`，依次展示数字 1~8 完成训练
+2. 已有特征：直接运行 `vision_line.py`（特征保存在 `/sdcard/features_digit/`）
+
+### 比赛部署（脱离 IDE）
+
+1. 确认特征文件就绪（`/sdcard/features_digit/` 有 24 个 `.bin`）
+2. 把 `vision_line.py` 拷贝到 K230 的 `/sdcard/` 并改名 `main.py`
+3. 上电自动运行，无需 IDE
+4. 开发调试时删除 `main.py` 即可恢复 IDE 连接
 
 ## 硬件接线
 
 ```
-K230 GPIO40 (UART1 TX) → MSPM0 PA9 (UART1 RX)
-K230 GPIO41 (UART1 RX) → MSPM0 PA8 (UART1 TX)
+K230 GPIO40 (UART1 TX) → MSPM0 PA8 (UART0 RX)
+K230 GPIO41 (UART1 RX) → MSPM0 PA9 (UART0 TX)
 K230 GND                → MSPM0 GND
 ```
 
