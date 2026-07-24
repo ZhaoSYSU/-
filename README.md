@@ -11,7 +11,7 @@
 │   ├── yolo_number.py     # YOLO数字检测（需训练kmodel）
 │   └── clean_features.py  # 重训练前清理特征文件
 │
-└── empty.2/               # MSPM0G3507 底层驱动
+└── A_Driver/              # MSPM0G3507 底层驱动
     ├── motor.c / motor.h  # 双路直流电机驱动（PWM + PI速度环）
     ├── encoder.c / encoder.h  # 编码器测速（MG310, 20PPR, 减速比13:1）
     ├── oled.c / oled.h    # SSD1306 OLED显示
@@ -86,6 +86,6 @@ CHECKSUM = (CMD + DH + DL) & 0xFF
 ## 开发流程
 
 1. **K230单独调试**: IDE运行 `vision_line.py`, 确认巡线/数字识别/LCD显示正常
-2. **MSPM0单独调试**: CCS编译 `empty.2`, 确认电机/编码器/OLED正常
+2. **MSPM0单独调试**: CCS编译 `A_Driver`, 确认电机/编码器/OLED正常
 3. **联调**: 接UART, K230发巡线偏差, MSPM0做PID控制
 4. **场地实测**: 上赛道调巡线ROI/阈值/PID参数
