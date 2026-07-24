@@ -259,26 +259,31 @@ int main(void)
         }
         OLED_Refresh();
 
-        /* ---- 消费视觉数据 ---- */
-        if (gVis.status == 2) {
-            /* 丢线 → 停车 */
-            Motor_SetTarget(MOTOR_A, 0);
-            Motor_SetTarget(MOTOR_B, 0);
-        } else {
-            /* 巡线: 偏差 → 差速 */
-            int32_t diff = gVis.deviation * kTurnGain;
-            Motor_SetTarget(MOTOR_A, kBaseSpeed + diff);
-            Motor_SetTarget(MOTOR_B, kBaseSpeed - diff);
-        }
+        /* ---- 消费视觉数据（关中断做原子拷贝，避免读到半帧） ---- */
+        {
+            NVIC_DisableIRQ(UART_0_INST_INT_IRQN);
+            VisionData vis = gVis;
+            bool is_updated = gVisUpdated;
+            gVisUpdated = false;
+            NVIC_EnableIRQ(UART_0_INST_INT_IRQN);
 
-        /* 新数字/轨道 → 交给状态机处理(暂存, 待C_Scheduler接入) */
-        if (gVis.new_digit) {
-            // TODO: 状态机判断是否目标病房
-            gVis.new_digit = false;
-        }
-        if (gVis.new_track) {
-            // TODO: 触发转弯/直行决策
-            gVis.new_track = false;
+            if (is_updated) {
+                if (vis.status == 2) {
+                    Motor_SetTarget(MOTOR_A, 0);
+                    Motor_SetTarget(MOTOR_B, 0);
+                } else {
+                    int32_t diff = vis.deviation * kTurnGain;
+                    Motor_SetTarget(MOTOR_A, kBaseSpeed + diff);
+                    Motor_SetTarget(MOTOR_B, kBaseSpeed - diff);
+                }
+            }
+
+            if (vis.new_digit) {
+                // TODO: 状态机判断是否目标病房
+            }
+            if (vis.new_track) {
+                // TODO: 触发转弯/直行决策
+            }
         }
 
         delay_cycles(3200000);  /* ~40ms @80MHz → 主循环 ~25Hz */
