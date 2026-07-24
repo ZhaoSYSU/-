@@ -34,13 +34,13 @@
  *  ============ ti_msp_dl_config.h =============
  *  Configured MSPM0 DriverLib module declarations
  *
- *  DO NOT EDIT - This file is generated for the LP_MSPM0G3507
+ *  DO NOT EDIT - This file is generated for the MSPM0G350X
  *  by the SysConfig tool.
  */
 #ifndef ti_msp_dl_config_h
 #define ti_msp_dl_config_h
 
-#define CONFIG_LP_MSPM0G3507
+#define CONFIG_MSPM0G350X
 #define CONFIG_MSPM0G3507
 
 #if defined(__ti_version__) || defined(__TI_COMPILER_VERSION__)
@@ -97,12 +97,55 @@ extern "C" {
 
 
 
+/* Defines for UART_0 */
+#define UART_0_INST                                                        UART0
+#define UART_0_INST_FREQUENCY                                           32000000
+#define UART_0_INST_IRQHandler                                  UART0_IRQHandler
+#define UART_0_INST_INT_IRQN                                      UART0_INT_IRQn
+#define GPIO_UART_0_RX_PORT                                                GPIOA
+#define GPIO_UART_0_TX_PORT                                                GPIOA
+#define GPIO_UART_0_RX_PIN                                         DL_GPIO_PIN_1
+#define GPIO_UART_0_TX_PIN                                         DL_GPIO_PIN_0
+#define GPIO_UART_0_IOMUX_RX                                      (IOMUX_PINCM2)
+#define GPIO_UART_0_IOMUX_TX                                      (IOMUX_PINCM1)
+#define GPIO_UART_0_IOMUX_RX_FUNC                       IOMUX_PINCM2_PF_UART0_RX
+#define GPIO_UART_0_IOMUX_TX_FUNC                       IOMUX_PINCM1_PF_UART0_TX
+#define UART_0_BAUD_RATE                                                (115200)
+#define UART_0_IBRD_32_MHZ_115200_BAUD                                      (17)
+#define UART_0_FBRD_32_MHZ_115200_BAUD                                      (23)
+
+
+
+
+/* Defines for OLED_SPI */
+#define OLED_SPI_INST                                                      SPI1
+#define OLED_SPI_INST_IRQHandler                                SPI1_IRQHandler
+#define OLED_SPI_INST_INT_IRQN                                    SPI1_INT_IRQn
+#define GPIO_OLED_SPI_PICO_PORT                                           GPIOB
+#define GPIO_OLED_SPI_PICO_PIN                                    DL_GPIO_PIN_8
+#define GPIO_OLED_SPI_IOMUX_PICO                                (IOMUX_PINCM25)
+#define GPIO_OLED_SPI_IOMUX_PICO_FUNC                IOMUX_PINCM25_PF_SPI1_PICO
+#define GPIO_OLED_SPI_POCI_PORT                                           GPIOA
+#define GPIO_OLED_SPI_POCI_PIN                                   DL_GPIO_PIN_16
+#define GPIO_OLED_SPI_IOMUX_POCI                                (IOMUX_PINCM38)
+#define GPIO_OLED_SPI_IOMUX_POCI_FUNC                IOMUX_PINCM38_PF_SPI1_POCI
+/* GPIO configuration for OLED_SPI */
+#define GPIO_OLED_SPI_SCLK_PORT                                           GPIOB
+#define GPIO_OLED_SPI_SCLK_PIN                                    DL_GPIO_PIN_9
+#define GPIO_OLED_SPI_IOMUX_SCLK                                (IOMUX_PINCM26)
+#define GPIO_OLED_SPI_IOMUX_SCLK_FUNC                IOMUX_PINCM26_PF_SPI1_SCLK
+#define GPIO_OLED_SPI_CS0_PORT                                            GPIOA
+#define GPIO_OLED_SPI_CS0_PIN                                     DL_GPIO_PIN_2
+#define GPIO_OLED_SPI_IOMUX_CS0                                  (IOMUX_PINCM7)
+#define GPIO_OLED_SPI_IOMUX_CS0_FUNC                   IOMUX_PINCM7_PF_SPI1_CS0
+
+
 
 /* Defines for AIN1: GPIOA.8 with pinCMx 19 on package pin 54 */
 #define DC_MOTOR_AIN1_PORT                                               (GPIOA)
 #define DC_MOTOR_AIN1_PIN                                        (DL_GPIO_PIN_8)
 #define DC_MOTOR_AIN1_IOMUX                                      (IOMUX_PINCM19)
-/* Defines for AIN2: GPIOA.15 with pinCMx 37 on package pin 30 */
+/* Defines for AIN2: GPIOA.15 with pinCMx 37 on package pin 8 */
 #define DC_MOTOR_AIN2_PORT                                               (GPIOA)
 #define DC_MOTOR_AIN2_PIN                                       (DL_GPIO_PIN_15)
 #define DC_MOTOR_AIN2_IOMUX                                      (IOMUX_PINCM37)
@@ -110,7 +153,7 @@ extern "C" {
 #define DC_MOTOR_STBY_PORT                                               (GPIOB)
 #define DC_MOTOR_STBY_PIN                                       (DL_GPIO_PIN_24)
 #define DC_MOTOR_STBY_IOMUX                                      (IOMUX_PINCM52)
-/* Defines for BIN1: GPIOB.13 with pinCMx 30 on package pin 28 */
+/* Defines for BIN1: GPIOB.13 with pinCMx 30 on package pin 1 */
 #define DC_MOTOR_BIN1_PORT                                               (GPIOB)
 #define DC_MOTOR_BIN1_PIN                                       (DL_GPIO_PIN_13)
 #define DC_MOTOR_BIN1_IOMUX                                      (IOMUX_PINCM30)
@@ -118,21 +161,18 @@ extern "C" {
 #define DC_MOTOR_BIN2_PORT                                               (GPIOB)
 #define DC_MOTOR_BIN2_PIN                                       (DL_GPIO_PIN_12)
 #define DC_MOTOR_BIN2_IOMUX                                      (IOMUX_PINCM29)
-
-
-/* Defines for OLED (I2C1) */
-#define OLED_I2C_INST                                                        I2C1
-#define OLED_I2C_INST_IRQHandler                                  I2C1_IRQHandler
-#define OLED_I2C_INST_INT_IRQN                                      I2C1_INT_IRQn
-#define OLED_I2C_BUS_SPEED_HZ                                              400000
-#define GPIO_OLED_SDA_PORT                                                  GPIOB
-#define GPIO_OLED_SDA_PIN                                           DL_GPIO_PIN_3
-#define GPIO_OLED_IOMUX_SDA                                       (IOMUX_PINCM16)
-#define GPIO_OLED_IOMUX_SDA_FUNC                        IOMUX_PINCM16_PF_I2C1_SDA
-#define GPIO_OLED_SCL_PORT                                                  GPIOB
-#define GPIO_OLED_SCL_PIN                                           DL_GPIO_PIN_2
-#define GPIO_OLED_IOMUX_SCL                                       (IOMUX_PINCM15)
-#define GPIO_OLED_IOMUX_SCL_FUNC                        IOMUX_PINCM15_PF_I2C1_SCL
+/* Defines for OLED_RES: GPIOB.3 with pinCMx 16 on package pin 51 */
+#define DC_MOTOR_OLED_RES_PORT                                           (GPIOB)
+#define DC_MOTOR_OLED_RES_PIN                                    (DL_GPIO_PIN_3)
+#define DC_MOTOR_OLED_RES_IOMUX                                  (IOMUX_PINCM16)
+/* Defines for OLED_DC: GPIOB.2 with pinCMx 15 on package pin 50 */
+#define DC_MOTOR_OLED_DC_PORT                                            (GPIOB)
+#define DC_MOTOR_OLED_DC_PIN                                     (DL_GPIO_PIN_2)
+#define DC_MOTOR_OLED_DC_IOMUX                                   (IOMUX_PINCM15)
+/* Defines for OLED_CS: GPIOA.27 with pinCMx 60 on package pin 31 */
+#define DC_MOTOR_OLED_CS_PORT                                            (GPIOA)
+#define DC_MOTOR_OLED_CS_PIN                                    (DL_GPIO_PIN_27)
+#define DC_MOTOR_OLED_CS_IOMUX                                   (IOMUX_PINCM60)
 
 
 /* clang-format on */
@@ -142,7 +182,12 @@ void SYSCFG_DL_initPower(void);
 void SYSCFG_DL_GPIO_init(void);
 void SYSCFG_DL_SYSCTL_init(void);
 void SYSCFG_DL_PWMA_init(void);
+void SYSCFG_DL_UART_0_init(void);
+void SYSCFG_DL_OLED_SPI_init(void);
 
+
+bool SYSCFG_DL_saveConfiguration(void);
+bool SYSCFG_DL_restoreConfiguration(void);
 
 #ifdef __cplusplus
 }
