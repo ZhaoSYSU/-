@@ -94,7 +94,7 @@ K230 帧格式: [0xAA][CMD][DH][DL][CS][0x55]
 | 丢线停车 | CMD 0x03 status=2 | 两轮速度=0 |
 | MODE_TURN (转弯) | CMD 0x04 track≠0 | 固定差速 500ms，结束后恢复巡线 |
 
-转弯参数（`empty.c`）:
+转弯参数（`main.c`）:
 ```c
 kTurnDurMs  = 500;  // 转弯持续 ms
 kTurnSpeedL = 15;   // 慢轮速度 mm/s
