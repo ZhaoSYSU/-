@@ -1,82 +1,57 @@
 /*
  * ================================================================
- *  LP_MSPM0G3507 双电机机器人平台 — 引脚接线总表
+ *  LP_MSPM0G3507 双电机机器人平台 — 主程序 (含K230 UART接收)
  * ================================================================
  *
- *  【电机A — TB6612FNG 通道1】
- *    PA8   (PINCM19, pin15)  → AIN1   (方向控制)
- *    PA15  (PINCM37, pin33)  → AIN2   (方向控制)
- *    PA12  (PINCM34, pin27)  → PWMA   (TIMG0 CCP0, 边沿对齐下行)
+ *  【SysConfig 配置步骤】
+ *    1. 打开 empty.syscfg
+ *    2. 添加 UART 外设 → 选 UART1
+ *       PA8 改为 RX (原AIN1→挪到PA5)
+ *       PA9 改为 TX
+ *       115200, 8N1, 开 RX 中断
+ *    3. 电机A AIN1 从 PA8 改为 PA5（在 GPIO 里改）
+ *    4. Save → 重新生成 ti_msp_dl_config.c/.h
  *
- *  【电机B — TB6612FNG 通道2】
- *    PB13  (PINCM30, pin51)  → BIN1   (方向控制)
- *    PB12  (PINCM29, pin50)  → BIN2   (方向控制)
- *    PA13  (PINCM35, pin29)  → PWMB   (TIMG0 CCP1, 边沿对齐下行)
+ *  【引脚接线总表】
  *
- *  【TB6612FNG 公共】
- *    PB24  (PINCM52, pin61)  → STBY   (待机, 高电平使能)
+ *   [电机A — TB6612FNG 通道1]
+ *     PA5   → AIN1   (方向控制, 从PA8挪过来)
+ *     PA15  → AIN2   (方向控制)
+ *     PA12  → PWMA   (TIMG0 CCP0)
  *
- *  【编码器A — MG310 电机1 (A相双沿计数, 2倍频, B判方向)】
- *    PA17  (PINCM39, pin37)  → E1A    (编码器A相, 输入+上拉+迟滞)
- *    PA18  (PINCM40, pin38)  → E1B    (编码器B相, 输入+上拉+迟滞)
+ *   [电机B — TB6612FNG 通道2]
+ *     PB13  → BIN1   (方向控制)
+ *     PB12  → BIN2   (方向控制)
+ *     PA13  → PWMB   (TIMG0 CCP1)
  *
- *  【编码器B — MG310 电机2】
- *    PB4   (PINCM17, pin43)  → E2A    (编码器A相, 输入+上拉+迟滞)
- *    PB15  (PINCM32, pin54)  → E2B    (编码器B相, 输入+上拉+迟滞)
+ *   [TB6612FNG 公共]
+ *     PB24  → STBY
  *
- *  【OLED — SSD1306 128×64 SPI (7-pin)】
- *    PB9   (PINCM18, pin46)  → SCLK   (SPI1 时钟)
- *    PB8   (PINCM55, pin45)  → MOSI   (SPI1 数据)
- *    PB3   (PINCM16, pin42)  → RES    (复位, GPIO)
- *    PB2   (PINCM15, pin41)  → DC     (数据/命令, GPIO)
- *    PA27  (PINCM54, pin36)  → CS     (片选, GPIO)
- *    VCC → 3.3V,  GND → GND
+ *   [编码器A — MG310]
+ *     PA17 → E1A, PA18 → E1B
  *
- *  【调试接口 (板载 XDS-110)】
- *    PA20  → SWCLK,  PA19  → SWDIO
+ *   [编码器B — MG310]
+ *     PB4  → E2A, PB15 → E2B
  *
- *  【定时器分配】
- *    TIMG0  → PWM 电机A+B, 32MHz, period=3200, ~10kHz
- *    TIMG12 → 编码器轮询, 32MHz, period=32000, 1ms 周期
- *    TIMG6  → 速度计算+PID, BUSCLK/256=125kHz, period=12500, 100ms
+ *   [OLED — SSD1306 SPI]
+ *     PB9→SCLK, PB8→MOSI, PB3→RES, PB2→DC, PA27→CS
  *
- *  【编码参数】
- *    电机编码器: 20 PPR, 减速比 13:1
- *    轮子直径: 48mm, 周长 150.72mm
- *    CPR(2倍频): 20×13×2 = 520 脉冲/轮转
- *    速度公式: mm/s = pulse_count × 942 ÷ 325
+ *   [K230 UART — 视觉数据]
+ *     PA8  → UART1 RX  ← K230 GPIO40 (TXD)
+ *     PA9  → UART1 TX  → K230 GPIO41 (RXD)
  *
+ *   [调试] PA20→SWCLK, PA19→SWDIO
+ *
+ *   [定时器]
+ *     TIMG0  → PWM 双路, 10kHz
+ *     TIMG12 → 编码器轮询, 1ms
+ *     TIMG6  → 速度+PI, 100ms
+ *
+ *   [编码参数]
+ *     20PPR × 减速比13 × 2倍频 = 520CPR
+ *     轮径48mm, 周长150.72mm
+ *     速度 = pulse × 942 ÷ 325  (mm/s)
  * ================================================================
- *
- * Copyright (c) 2021, Texas Instruments Incorporated
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * *  Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * *  Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * *  Neither the name of Texas Instruments Incorporated nor the names of
- *    its contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "ti_msp_dl_config.h"
@@ -84,33 +59,152 @@
 #include "motor.h"
 #include "encoder.h"
 
+/* ======================== UART 帧接收 ======================== */
+
+/* K230 视觉协议帧格式: [0xAA][CMD][DH][DL][CS][0x55] */
+#define UART_FRAME_LEN  6
+#define UART_HEADER     0xAA
+#define UART_FOOTER     0x55
+#define UART_TIMEOUT_MS 10    /* 帧超时(ms)，约 800000 cycles @80MHz */
+
+/* 接收状态机 */
+typedef enum {
+    WAIT_HEADER = 0,
+    WAIT_DATA
+} UartRxState;
+
+static volatile UartRxState rx_state = WAIT_HEADER;
+static volatile uint8_t   rx_buf[UART_FRAME_LEN];
+static volatile uint8_t   rx_idx;
+static volatile uint32_t  rx_timeout;    /* 超时刻度计数 */
+static volatile bool      rx_timeout_flag;
+
+/* 解析结果 */
+typedef struct {
+    int16_t  deviation;    /* CMD 0x01: 巡线偏差 */
+    uint8_t  digit;        /* CMD 0x02: 数字 1~8 */
+    uint8_t  status;       /* CMD 0x03: 0=OK, 2=丢线 */
+    int16_t  track;        /* CMD 0x04: 0=直, -80=左, 80=右 */
+    bool     new_digit;    /* 有新数字 */
+    bool     new_track;    /* 有新轨道 */
+} VisionData;
+
+static volatile VisionData gVis = {0};
+static volatile bool gVisUpdated = false;
+
+/* ---- 校验和 ---- */
+static inline uint8_t calc_cs(uint8_t cmd, uint8_t dh, uint8_t dl)
+{
+    return (cmd + dh + dl) & 0xFF;
+}
+
+/* ---- 帧解析 (在中断里调用) ---- */
+static void parse_frame(void)
+{
+    uint8_t cmd  = rx_buf[1];
+    uint8_t dh   = rx_buf[2];
+    uint8_t dl   = rx_buf[3];
+    uint8_t cs   = rx_buf[4];
+    uint8_t foot = rx_buf[5];
+
+    if (foot != UART_FOOTER) return;
+    if (calc_cs(cmd, dh, dl) != cs) return;
+
+    switch (cmd) {
+    case 0x01:   /* 巡线偏差 */
+        gVis.deviation = (int16_t)((dh << 8) | dl);
+        break;
+    case 0x02:   /* 数字识别 */
+        gVis.digit = dl;
+        gVis.new_digit = true;
+        break;
+    case 0x03:   /* 视觉状态 */
+        gVis.status = dl;
+        break;
+    case 0x04:   /* 轨道类型 */
+        gVis.track = (int16_t)((dh << 8) | dl);
+        gVis.new_track = true;
+        break;
+    default:
+        break;
+    }
+    gVisUpdated = true;
+}
+
+/* ---- UART1 中断服务 ---- */
+void UART_0_INST_IRQHandler(void)
+{
+    switch (DL_UART_Main_getPendingInterrupt(UART_0_INST)) {
+    case DL_UART_MAIN_IIDX_RX: {
+        uint8_t byte = DL_UART_Main_receiveData(UART_0_INST);
+
+        if (rx_state == WAIT_HEADER) {
+            if (byte == UART_HEADER) {
+                rx_buf[0] = byte;
+                rx_idx = 1;
+                rx_state = WAIT_DATA;
+                rx_timeout = 0;
+                rx_timeout_flag = false;
+            }
+        } else {
+            rx_buf[rx_idx++] = byte;
+            if (rx_idx >= UART_FRAME_LEN) {
+                parse_frame();
+                rx_state = WAIT_HEADER;
+            }
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+/* ---- 超时检测 (由 TIMG12 中断中调用, 每1ms) ---- */
+void UART_CheckTimeout(void)
+{
+    if (rx_state == WAIT_DATA && !rx_timeout_flag) {
+        if (++rx_timeout >= UART_TIMEOUT_MS) {
+            rx_timeout_flag = true;
+            rx_state = WAIT_HEADER;   /* 超时丢弃，重找帧头 */
+        }
+    }
+}
+
+
+/* ======================== 主程序 ======================== */
+
 int main(void)
 {
     SYSCFG_DL_init();
     Encoder_Init();
 
-    /* OLED 显示开机信息 */
+    /* 使能 UART1 接收中断 */
+    NVIC_ClearPendingIRQ(UART_0_INST_INT_IRQN);
+    NVIC_EnableIRQ(UART_0_INST_INT_IRQN);
+
+    /* OLED */
     OLED_Init();
     OLED_Clear();
     OLED_Refresh();
 
-    /* 双电机: 正转 + 设目标速度 */
+    /* 电机初始 */
     Motor_Init();
-    Motor_SetTarget(MOTOR_A, 30);
-    Motor_SetTarget(MOTOR_B, 30);
     Motor_Enable();
 
+    /* 巡线参数 */
+    const int32_t kBaseSpeed = 40;    /* 直走基速 mm/s */
+    const int32_t kTurnGain  = 2;     /* 偏差增益: 每像素偏差 → mm/s 差速 */
+
     while (1) {
+        /* ---- OLED 显示 ---- */
         OLED_Clear();
         {
             char buf[16];
             int32_t spdA = Encoder_GetSpeed_A();
             int32_t spdB = Encoder_GetSpeed_B();
-            int32_t pulA = Encoder_GetPulse_A();
-            int32_t pulB = Encoder_GetPulse_B();
 
-            /* 第一行: 速度 mm/s */
-            OLED_ShowString(1, 0, "V A:");
+            OLED_ShowString(1, 0, "V A:");      /* 速度A */
             {
                 int i = 0; int32_t v = spdA;
                 if (v < 0) { buf[i++] = '-'; v = -v; }
@@ -119,12 +213,11 @@ int main(void)
                 buf[i++] = '0' + ((v / 100)   % 10);
                 buf[i++] = '0' + ((v / 10)     % 10);
                 buf[i++] = '0' + (v % 10);
-                buf[i]   = 0;
+                buf[i] = 0;
                 OLED_ShowString(1, 40, buf);
             }
 
-            /* 第二行: 速度 mm/s */
-            OLED_ShowString(2, 0, "V B:");
+            OLED_ShowString(2, 0, "V B:");      /* 速度B */
             {
                 int i = 0; int32_t v = spdB;
                 if (v < 0) { buf[i++] = '-'; v = -v; }
@@ -133,41 +226,61 @@ int main(void)
                 buf[i++] = '0' + ((v / 100)   % 10);
                 buf[i++] = '0' + ((v / 10)     % 10);
                 buf[i++] = '0' + (v % 10);
-                buf[i]   = 0;
+                buf[i] = 0;
                 OLED_ShowString(2, 40, buf);
             }
 
-            /* 第三行: 原始脉冲数(调试) */
+            /* 第三行: 视觉数据 */
             {
-                char pbuf[20];
-                int i, n;
-                int32_t p;
-
-                i = 0;
-                pbuf[i++] = 'P'; pbuf[i++] = 'A'; pbuf[i++] = ':';
-                p = pulA;
-                if (p < 0) { pbuf[i++] = '-'; p = -p; }
-                if (p > 9999) p = 9999;
-                n = p;
-                pbuf[i++] = '0' + (n / 1000); n %= 1000;
-                pbuf[i++] = '0' + (n / 100);  n %= 100;
-                pbuf[i++] = '0' + (n / 10);   n %= 10;
-                pbuf[i++] = '0' + n;
-
-                pbuf[i++] = ' '; pbuf[i++] = 'P'; pbuf[i++] = 'B'; pbuf[i++] = ':';
-                p = pulB;
-                if (p < 0) { pbuf[i++] = '-'; p = -p; }
-                if (p > 9999) p = 9999;
-                n = p;
-                pbuf[i++] = '0' + (n / 1000); n %= 1000;
-                pbuf[i++] = '0' + (n / 100);  n %= 100;
-                pbuf[i++] = '0' + (n / 10);   n %= 10;
-                pbuf[i++] = '0' + n;
-                pbuf[i] = 0;
-                OLED_ShowString(3, 0, pbuf);
+                char vbuf[22];
+                int i = 0;
+                vbuf[i++] = 'D'; vbuf[i++] = ':';
+                {
+                    int16_t d = gVis.deviation;
+                    if (d < 0) { vbuf[i++] = '-'; d = -d; }
+                    vbuf[i++] = '0' + (d / 100);
+                    vbuf[i++] = '0' + (d / 10) % 10;
+                    vbuf[i++] = '0' + (d % 10);
+                }
+                vbuf[i++] = ' ';
+                vbuf[i++] = 'N'; vbuf[i++] = ':';
+                vbuf[i++] = gVis.digit ? '0' + gVis.digit : '-';
+                vbuf[i++] = ' ';
+                vbuf[i++] = 'T'; vbuf[i++] = ':';
+                if (gVis.track == 0)      { vbuf[i++]='S'; }
+                else if (gVis.track < 0)  { vbuf[i++]='L'; }
+                else if (gVis.track > 0)  { vbuf[i++]='R'; }
+                else                       { vbuf[i++]='-'; }
+                vbuf[i++] = ' ';
+                vbuf[i++] = gVis.status==2 ? '!' : ' ';
+                vbuf[i] = 0;
+                OLED_ShowString(3, 0, vbuf);
             }
         }
         OLED_Refresh();
-        delay_cycles(3200000);
+
+        /* ---- 消费视觉数据 ---- */
+        if (gVis.status == 2) {
+            /* 丢线 → 停车 */
+            Motor_SetTarget(MOTOR_A, 0);
+            Motor_SetTarget(MOTOR_B, 0);
+        } else {
+            /* 巡线: 偏差 → 差速 */
+            int32_t diff = gVis.deviation * kTurnGain;
+            Motor_SetTarget(MOTOR_A, kBaseSpeed + diff);
+            Motor_SetTarget(MOTOR_B, kBaseSpeed - diff);
+        }
+
+        /* 新数字/轨道 → 交给状态机处理(暂存, 待C_Scheduler接入) */
+        if (gVis.new_digit) {
+            // TODO: 状态机判断是否目标病房
+            gVis.new_digit = false;
+        }
+        if (gVis.new_track) {
+            // TODO: 触发转弯/直行决策
+            gVis.new_track = false;
+        }
+
+        delay_cycles(3200000);  /* ~40ms @80MHz → 主循环 ~25Hz */
     }
 }

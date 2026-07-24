@@ -15,7 +15,7 @@
 #define GPIO_PWMA_C1_IDX        DL_TIMER_CC_1_INDEX
 
 #define DC_MOTOR_AIN1_PORT      GPIOA
-#define DC_MOTOR_AIN1_PIN       DL_GPIO_PIN_8
+#define DC_MOTOR_AIN1_PIN       DL_GPIO_PIN_5   /* 原PA8，让给UART1 RX */
 #define DC_MOTOR_AIN2_PORT      GPIOA
 #define DC_MOTOR_AIN2_PIN       DL_GPIO_PIN_15
 
