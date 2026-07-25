@@ -61,7 +61,7 @@ static void Encoder_Decode(Encoder_t *enc)
 }
 
 /* ---- TIMG12 中断: 每1ms轮询编码器 ---- */
-void UART_CheckTimeout(void);  /* 声明, 实现在 empty.c */
+void UART_CheckTimeout(void);  /* 声明, 实现在 main.c */
 
 void TIMG12_IRQHandler(void)
 {

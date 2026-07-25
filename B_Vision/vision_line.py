@@ -4,7 +4,7 @@
 快通道(每帧): 灰度巡线 + 轨道类型判断 → UART
 慢通道(每10帧): KPU数字识别 → UART
 
-通信: UART1 (GPIO40=TX, GPIO41=RX) → MSPM0 UART0
+通信: UART1 (GPIO40=TX, GPIO41=RX) → MSPM0 UART1 (PA9=RX, PA8=TX)
 协议: [0xAA][CMD][DH][DL][CS][0x55]
   CMD 0x01 = 巡线偏差 (int16, -160~+160)
   CMD 0x02 = 数字识别 (1~8)

@@ -6,8 +6,8 @@
  *  【SysConfig 配置步骤】
  *    1. 打开 empty.syscfg
  *    2. 添加 UART 外设 → 选 UART1
- *       PA8 改为 RX (原AIN1→挪到PA5)
- *       PA9 改为 TX
+ *       PA9 改为 RX (K230 GPIO40 TXD)
+ *       PA8 改为 TX (K230 GPIO41 RXD)
  *       115200, 8N1, 开 RX 中断
  *    3. 电机A AIN1 从 PA8 改为 PA5（在 GPIO 里改）
  *    4. Save → 重新生成 ti_msp_dl_config.c/.h
@@ -37,8 +37,8 @@
  *     PB9→SCLK, PB8→MOSI, PB3→RES, PB2→DC, PA27→CS
  *
  *   [K230 UART — 视觉数据]
- *     PA8  → UART1 RX  ← K230 GPIO40 (TXD)
- *     PA9  → UART1 TX  → K230 GPIO41 (RXD)
+ *     PA9  → UART1 RX  ← K230 GPIO40 (TXD)
+ *     PA8  → UART1 TX  → K230 GPIO41 (RXD)
  *
  *   [调试] PA20→SWCLK, PA19→SWDIO
  *

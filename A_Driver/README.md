@@ -18,7 +18,7 @@
 - 编码器: MG310 霍尔编码器 (20PPR, 减速比 13:1, 520CPR)
 - 轮径: 48mm, 周长 150.72mm
 - 显示: SSD1306 128×64 OLED (SPI)
-- 通信: UART0 (PA8=RX, PA9=TX, 115200 8N1)
+- 通信: UART1 (PA9=RX, PA8=TX, 115200 8N1)
 
 ## 定时器分配
 
@@ -72,7 +72,7 @@ OLED_Clear() / OLED_ShowString() / OLED_Refresh()
 
 ## K230 视觉数据接入
 
-UART0 中断接收 K230 发来的视觉帧，主循环消费：
+UART1 中断接收 K230 发来的视觉帧，主循环消费：
 
 ```
 K230 帧格式: [0xAA][CMD][DH][DL][CS][0x55]
@@ -81,7 +81,7 @@ K230 帧格式: [0xAA][CMD][DH][DL][CS][0x55]
   CMD 0x03 → 视觉状态 → status=2 时停车
   CMD 0x04 → 轨道类型 → 存 gVis.track
 
-接收: UART0 RX 中断 → 逐字节组帧 → 验 CS → 解析 → gVis
+接收: UART1 RX 中断 → 逐字节组帧 → 验 CS → 解析 → gVis
 控制: 主循环读 gVis.deviation → Motor_SetTarget(A, base+diff) (B, base-diff)
 超时: TIMG12 每 1ms 检查，10ms 收不齐帧则丢弃重找帧头
 ```
@@ -131,6 +131,6 @@ D:+03 N:3 T<  ← 偏差+03 / 数字3 / 左转中
 
 | MSPM0 | K230 | 说明 |
 |-------|------|------|
-| PA8 (UART0 RX) | GPIO40 (UART1 TX) | 接收视觉数据 |
-| PA9 (UART0 TX) | GPIO41 (UART1 RX) | 发送反馈（可选） |
+| PA9 (UART1 RX) | GPIO40 (UART1 TX) | 接收视觉数据 |
+| PA8 (UART1 TX) | GPIO41 (UART1 RX) | 发送反馈（可选） |
 | GND | GND | 共地 |

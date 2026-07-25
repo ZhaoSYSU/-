@@ -97,19 +97,19 @@ extern "C" {
 
 
 
-/* Defines for UART_0 */
-#define UART_0_INST                                                        UART0
+/* Defines for UART_0 (UART1 on PA8/PA9 for K230 link) */
+#define UART_0_INST                                                        UART1
 #define UART_0_INST_FREQUENCY                                           32000000
-#define UART_0_INST_IRQHandler                                  UART0_IRQHandler
-#define UART_0_INST_INT_IRQN                                      UART0_INT_IRQn
+#define UART_0_INST_IRQHandler                                  UART1_IRQHandler
+#define UART_0_INST_INT_IRQN                                      UART1_INT_IRQn
 #define GPIO_UART_0_RX_PORT                                                GPIOA
 #define GPIO_UART_0_TX_PORT                                                GPIOA
-#define GPIO_UART_0_RX_PIN                                         DL_GPIO_PIN_1
-#define GPIO_UART_0_TX_PIN                                         DL_GPIO_PIN_0
-#define GPIO_UART_0_IOMUX_RX                                      (IOMUX_PINCM2)
-#define GPIO_UART_0_IOMUX_TX                                      (IOMUX_PINCM1)
-#define GPIO_UART_0_IOMUX_RX_FUNC                       IOMUX_PINCM2_PF_UART0_RX
-#define GPIO_UART_0_IOMUX_TX_FUNC                       IOMUX_PINCM1_PF_UART0_TX
+#define GPIO_UART_0_RX_PIN                                         DL_GPIO_PIN_9
+#define GPIO_UART_0_TX_PIN                                         DL_GPIO_PIN_8
+#define GPIO_UART_0_IOMUX_RX                                     (IOMUX_PINCM20)
+#define GPIO_UART_0_IOMUX_TX                                     (IOMUX_PINCM19)
+#define GPIO_UART_0_IOMUX_RX_FUNC                      IOMUX_PINCM20_PF_UART1_RX
+#define GPIO_UART_0_IOMUX_TX_FUNC                      IOMUX_PINCM19_PF_UART1_TX
 #define UART_0_BAUD_RATE                                                (115200)
 #define UART_0_IBRD_32_MHZ_115200_BAUD                                      (17)
 #define UART_0_FBRD_32_MHZ_115200_BAUD                                      (23)
@@ -141,10 +141,10 @@ extern "C" {
 
 
 
-/* Defines for AIN1: GPIOA.8 with pinCMx 19 on package pin 54 */
+/* Defines for AIN1: GPIOA.5 with pinCMx 10 */
 #define DC_MOTOR_AIN1_PORT                                               (GPIOA)
-#define DC_MOTOR_AIN1_PIN                                        (DL_GPIO_PIN_8)
-#define DC_MOTOR_AIN1_IOMUX                                      (IOMUX_PINCM19)
+#define DC_MOTOR_AIN1_PIN                                        (DL_GPIO_PIN_5)
+#define DC_MOTOR_AIN1_IOMUX                                      (IOMUX_PINCM10)
 /* Defines for AIN2: GPIOA.15 with pinCMx 37 on package pin 8 */
 #define DC_MOTOR_AIN2_PORT                                               (GPIOA)
 #define DC_MOTOR_AIN2_PIN                                       (DL_GPIO_PIN_15)

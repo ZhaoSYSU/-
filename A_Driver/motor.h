@@ -1,7 +1,7 @@
 /*
  *  motor.h  --  双路直流电机驱动 (TB6612FNG)
  *
- *  A通道: AIN1=PA8, AIN2=PA15, PWMA=PA12 (TIMG0 CCP0)
+ *  A通道: AIN1=PA5, AIN2=PA15, PWMA=PA12 (TIMG0 CCP0)
  *  B通道: BIN1=PB13, BIN2=PB12, PWMB=PA13 (TIMG0 CCP1)
  *  STBY:  PB24
  */

@@ -23,7 +23,7 @@
 ## 硬件架构
 
 ```
-K230D UART1(GPIO40/41) ──▶ MSPM0 UART0(PA8/PA9) ──▶ PI速度环 ──▶ 双电机
+K230D UART1(GPIO40/41) ──▶ MSPM0 UART1(PA9 RX/PA8 TX) ──▶ PI速度环 ──▶ 双电机
     (视觉)                  (主控)                (motor.c)    TB6612FNG
                                 │
                                 ├── TIMG12 1ms ──▶ 编码器轮询 (MG310)
@@ -43,7 +43,7 @@ K230D UART1(GPIO40/41) ──▶ MSPM0 UART0(PA8/PA9) ──▶ PI速度环 ─�
 ## 通信协议
 
 ```
-K230 UART1 (GPIO40=TX, GPIO41=RX) → MSPM0 UART0 (PA8=RX, PA9=TX)
+K230 UART1 (GPIO40=TX, GPIO41=RX) → MSPM0 UART1 (PA9=RX, PA8=TX)
 115200 8N1
 
 帧格式: [0xAA][CMD][DH][DL][CS][0x55]
@@ -61,8 +61,8 @@ CHECKSUM = (CMD + DH + DL) & 0xFF
 
 | K230 | MSPM0 | 说明 |
 |------|-------|------|
-| GPIO40 (UART1 TX) | PA8 (UART0 RX) | 视觉数据 |
-| GPIO41 (UART1 RX) | PA9 (UART0 TX) | 反馈（可选） |
+| GPIO40 (UART1 TX) | PA9 (UART1 RX) | 视觉数据 |
+| GPIO41 (UART1 RX) | PA8 (UART1 TX) | 反馈（可选） |
 | GND | GND | 共地 |
 
 ### MSPM0 → 外设
@@ -101,7 +101,7 @@ CHECKSUM = (CMD + DH + DL) & 0xFF
 > 注意：CCS 工程是源文件的独立副本，Git 仓库（`A_Driver/`）是唯一真源。改代码在仓库里改，编译前同步到 CCS 工程。
 
 ### 联调
-1. 接好 UART 线 (K230 GPIO40/41 ↔ MSPM0 PA8/PA9)
+1. 接好 UART 线 (K230 GPIO40 TX ↔ MSPM0 PA9 RX, K230 GPIO41 RX ↔ MSPM0 PA8 TX)
 2. K230 先跑 `vision_line.py`
 3. MSPM0 上电，OLED 第三行应显示 `D: N: T:`
 4. K230 前放数字卡，OLED 上 `N:` 应变

@@ -66,7 +66,19 @@
         description="Empty example with SysConfig enabled to be used as a starting point for new development">
         <property name="buildProfile" value="release"/>
         <property name="isHybrid" value="true"/>
-        <file path="../empty.c" openOnCreation="false" excludeFromBuild="false" action="copy">
+        <file path="../main.c" openOnCreation="false" excludeFromBuild="false" action="copy">
+        </file>
+        <file path="../oled.h" openOnCreation="false" excludeFromBuild="false" action="copy">
+        </file>
+        <file path="../oled.c" openOnCreation="false" excludeFromBuild="false" action="copy">
+        </file>
+        <file path="../motor.h" openOnCreation="false" excludeFromBuild="false" action="copy">
+        </file>
+        <file path="../motor.c" openOnCreation="false" excludeFromBuild="false" action="copy">
+        </file>
+        <file path="../encoder.h" openOnCreation="false" excludeFromBuild="false" action="copy">
+        </file>
+        <file path="../encoder.c" openOnCreation="false" excludeFromBuild="false" action="copy">
         </file>
         <file path="../README.md" openOnCreation="true" excludeFromBuild="false" action="copy">
         </file>

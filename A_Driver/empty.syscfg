@@ -30,7 +30,7 @@ GPIO1.$name                          = "DC_MOTOR";
 GPIO1.associatedPins.create(8);
 GPIO1.associatedPins[0].$name        = "AIN1";
 GPIO1.associatedPins[0].assignedPort = "PORTA";
-GPIO1.associatedPins[0].assignedPin  = "8";
+GPIO1.associatedPins[0].assignedPin  = "5";
 GPIO1.associatedPins[1].$name        = "AIN2";
 GPIO1.associatedPins[1].assignedPort = "PORTA";
 GPIO1.associatedPins[1].assignedPin  = "15";
@@ -110,7 +110,7 @@ UART1.rxPinConfig.$name = "ti_driverlib_gpio_GPIOPinGeneric7";
  * version of the tool will not impact the pinmux you originally saw.  These lines can be completely deleted in order to
  * re-solve from scratch.
  */
-GPIO1.associatedPins[0].pin.$suggestSolution = "PA8";
+GPIO1.associatedPins[0].pin.$suggestSolution = "PA5";
 GPIO1.associatedPins[1].pin.$suggestSolution = "PA15";
 GPIO1.associatedPins[2].pin.$suggestSolution = "PB24";
 GPIO1.associatedPins[3].pin.$suggestSolution = "PB13";
@@ -124,6 +124,6 @@ Board.peripheral.swdioPin.$suggestSolution   = "PA19";
 SPI1.peripheral.misoPin.$suggestSolution     = "PA16";
 SPI1.peripheral.cs0Pin.$suggestSolution      = "PA2";
 SYSCTL.peripheral.$suggestSolution           = "SYSCTL";
-UART1.peripheral.$suggestSolution            = "UART0";
-UART1.peripheral.rxPin.$suggestSolution      = "PA1";
-UART1.peripheral.txPin.$suggestSolution      = "PA0";
+UART1.peripheral.$suggestSolution            = "UART1";
+UART1.peripheral.rxPin.$suggestSolution      = "PA9";
+UART1.peripheral.txPin.$suggestSolution      = "PA8";
