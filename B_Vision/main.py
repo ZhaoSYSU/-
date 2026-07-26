@@ -99,6 +99,8 @@ UART_TX_PIN = 40
 UART_RX_PIN = 41
 UART_BAUDRATE = 115200
 UART_SEND_EVERY_N_FRAMES = 2
+UART_DEBUG_PRINT = True
+UART_DEBUG_EVERY_FRAMES = 30
 
 # Protocol shared with A_Driver:
 # [0xAA][CMD][DH][DL][CHECKSUM][0x55]
@@ -123,13 +125,23 @@ def pack_i16(value):
 def uart_send_i16(uart, command, value):
     high, low = pack_i16(value)
     checksum = (command + high + low) & 0xFF
-    uart.write(bytes([0xAA, command, high, low, checksum, 0x55]))
+    packet = bytes([0xAA, command, high, low, checksum, 0x55])
+    uart.write(packet)
+    return packet
 
 
 def uart_send_u8(uart, command, value):
     value = int(value) & 0xFF
     checksum = (command + value) & 0xFF
-    uart.write(bytes([0xAA, command, 0, value, checksum, 0x55]))
+    packet = bytes([0xAA, command, 0, value, checksum, 0x55])
+    uart.write(packet)
+    return packet
+
+
+def packet_hex(packet):
+    if packet is None:
+        return "--"
+    return " ".join(["%02X" % b for b in packet])
 
 
 def init_uart():
@@ -496,11 +508,29 @@ def main():
             measurement = detect_line(img)
             line_ok = tracker.update(measurement)
 
-            if frame_id % UART_SEND_EVERY_N_FRAMES == 0 and uart is not None:
-                uart_send_i16(uart, 0x01, int(tracker.deviation))
-                uart_send_u8(uart, 0x03, 0 if line_ok else 2)
-                if line_ok:
-                    uart_send_i16(uart, 0x04, tracker.track_value())
+            if frame_id % UART_SEND_EVERY_N_FRAMES == 0:
+                packet_dev = None
+                packet_status = None
+                packet_track = None
+                if uart is not None:
+                    packet_dev = uart_send_i16(uart, 0x01, int(tracker.deviation))
+                    packet_status = uart_send_u8(uart, 0x03, 0 if line_ok else 2)
+                    if line_ok:
+                        packet_track = uart_send_i16(uart, 0x04, tracker.track_value())
+                if UART_DEBUG_PRINT and frame_id % UART_DEBUG_EVERY_FRAMES == 0:
+                    print(
+                        "UART_TX on=%d ok=%d dev=%d angle=%d track=%d "
+                        "p01=[%s] p03=[%s] p04=[%s]" % (
+                            1 if uart is not None else 0,
+                            1 if line_ok else 0,
+                            int(tracker.deviation),
+                            int(tracker.angle),
+                            tracker.track_value(),
+                            packet_hex(packet_dev),
+                            packet_hex(packet_status),
+                            packet_hex(packet_track),
+                        )
+                    )
 
             if frame_id % 5 == 0:
                 fps_text = "FPS: %.1f" % clock.fps()
