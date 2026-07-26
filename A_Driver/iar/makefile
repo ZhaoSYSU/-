@@ -21,7 +21,7 @@ ifeq ($(VERBOSE), 1)
   V :=
 endif
 
-OBJECTS = main.obj oled.obj motor.obj encoder.obj iar_startup_mspm0g350x_iar.obj $(patsubst %.c,%.obj,$(notdir $(SYSCFG_C_FILES)))
+OBJECTS = empty.obj iar_startup_mspm0g350x_iar.obj $(patsubst %.c,%.obj,$(notdir $(SYSCFG_C_FILES)))
 SYSCFG_ASM_FILES = $(filter %.s,$(SYSCFG_FILES))
 OBJECTS += $(patsubst %.s,%.obj,$(notdir $(SYSCFG_ASM_FILES)))
 
@@ -105,19 +105,7 @@ endef
 
 $(foreach c_file,$(SYSCFG_C_FILES),$(eval $(call C_RULE,$(c_file))))
 
-main.obj: ../main.c $(SYSCFG_H_FILES)
-	@ echo Building $@
-	$(V) $(CC) $(CFLAGS) $< -o $@
-
-oled.obj: ../oled.c $(SYSCFG_H_FILES)
-	@ echo Building $@
-	$(V) $(CC) $(CFLAGS) $< -o $@
-
-motor.obj: ../motor.c $(SYSCFG_H_FILES)
-	@ echo Building $@
-	$(V) $(CC) $(CFLAGS) $< -o $@
-
-encoder.obj: ../encoder.c $(SYSCFG_H_FILES)
+empty.obj: ../empty.c $(SYSCFG_H_FILES)
 	@ echo Building $@
 	$(V) $(CC) $(CFLAGS) $< -o $@
 

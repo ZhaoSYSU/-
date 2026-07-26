@@ -44,11 +44,11 @@
 #define PID_INTEGRAL_LIMIT         (2500)
 #define DUTY_LIMIT_PERCENT         (100)
 
-#define VISION_BASE_RPM            (55)
+#define VISION_BASE_RPM            (40)
 #define VISION_TURN_GAIN           (35)
 #define VISION_MAX_RPM             (95)
 #define VISION_LOST_TIMEOUT_MS     (500U)
-#define VISION_DEV_LIMIT           (160)
+#define VISION_DEV_LIMIT           (320)
 
 #define K230_FRAME_HEAD            (0xAAU)
 #define K230_FRAME_TAIL            (0x55U)
@@ -57,11 +57,15 @@
 #define K230_CMD_TRACK             (0x04U)
 #define K230_STATUS_OK             (0U)
 #define K230_STATUS_LOST           (2U)
+#define UART_DEBUG_ECHO            (0U)
+#define UART_SELF_TEST_MODE        (0U)
 
 /* Please update this value after confirming your MG310 encoder specification. */
 #define ENCODER_COUNTS_PER_REV     (1040U)
 #define LEFT_ENCODER_DIRECTION     (-1)
 #define RIGHT_ENCODER_DIRECTION    (1)
+#define LEFT_MOTOR_DIRECTION       (1)
+#define RIGHT_MOTOR_DIRECTION      (1)
 
 #define LEFT_PWM_INDEX             DL_TIMER_CC_0_INDEX
 #define RIGHT_PWM_INDEX            DL_TIMER_CC_1_INDEX
@@ -110,14 +114,18 @@ static uint8_t gOledBuffer[1024];
 static MotorPidController gLeftPid;
 static MotorPidController gRightPid;
 static volatile int16_t gVisionDeviation;
+static volatile int16_t gVisionTrackValue;
 static volatile bool gVisionLineOk;
 static volatile bool gVisionDataValid;
 static volatile uint32_t gVisionLastRxMs;
 static uint32_t gSystemMs;
 static volatile uint32_t gK230RxByteCount;
 static volatile uint32_t gK230FrameCount;
+static volatile uint32_t gK230HeadCount;
+static volatile uint32_t gK230BadFrameCount;
 static volatile uint8_t gK230LastByte;
 static volatile uint8_t gK230LastCmd;
+static volatile uint32_t gUartSelfTestTxCount;
 
 void Motor_SetTargetRPM(int32_t leftRpm, int32_t rightRpm);
 void Motor_Stop(void);
@@ -150,7 +158,50 @@ static void vision_update_target(void);
 static void k230_parse_byte(uint8_t data);
 static void k230_handle_packet(uint8_t cmd, uint8_t dh, uint8_t dl);
 static void k230_poll_uart(void);
+static void uart_self_test_send(void)
+{
+    static const uint8_t frames[] = {
+        0xAA, 0x01, 0x00, 0x00, 0x01, 0x55,
+        0xAA, 0x03, 0x00, 0x00, 0x03, 0x55,
+        0xAA, 0x04, 0x00, 0x00, 0x04, 0x55
+    };
+
+    gUartSelfTestTxCount++;
+    for (uint8_t i = 0U; i < sizeof(frames); i++) {
+        uint32_t timeout = 100000U;
+        while (DL_UART_Main_isTXFIFOFull(UART_0_INST) && (timeout > 0U)) {
+            timeout--;
+        }
+        if (timeout > 0U) {
+            DL_UART_Main_transmitData(UART_0_INST, frames[i]);
+        }
+    }
+}static void uart_debug_write_char(char ch)
+{
+    DL_UART_Main_transmitDataBlocking(UART_0_INST, (uint8_t) ch);
+}
+
+static void uart_debug_rx_byte(uint8_t data)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    static uint8_t byteCount;
+
+    uart_debug_write_char(hex[(data >> 4) & 0x0F]);
+    uart_debug_write_char(hex[data & 0x0F]);
+    byteCount++;
+
+    if ((data == K230_FRAME_TAIL) || (byteCount >= 6U)) {
+        uart_debug_write_char('\r');
+        uart_debug_write_char('\n');
+        byteCount = 0U;
+    } else {
+        uart_debug_write_char(' ');
+    }
+}
 static void delay_ms_with_k230_poll(uint32_t ms);
+static void uart_debug_rx_byte(uint8_t data);
+static void uart_debug_write_char(char ch);
+static void uart_self_test_send(void);
 
 int main(void)
 {
@@ -185,6 +236,9 @@ int main(void)
         rightStart = gRightEncoderCount;
         __enable_irq();
 
+        if (UART_SELF_TEST_MODE != 0U) {
+            uart_self_test_send();
+        }
         delay_ms_with_k230_poll(SPEED_SAMPLE_MS);
         gSystemMs += SPEED_SAMPLE_MS;
 
@@ -203,6 +257,23 @@ int main(void)
         motor_set_right(pid_update(&gRightPid, rightRpm));
 
         oled_clear();
+        if (UART_SELF_TEST_MODE != 0U) {
+            oled_show_string(0, 0, "UART TEST");
+            oled_show_string(0, 1, "TX:");
+            oled_show_signed_number(24, 1, gUartSelfTestTxCount);
+            oled_show_string(0, 2, "RX:");
+            oled_show_signed_number(24, 2, gK230RxByteCount);
+            oled_show_string(0, 3, "PK:");
+            oled_show_signed_number(24, 3, gK230FrameCount);
+            oled_show_string(0, 4, "H:");
+            oled_show_signed_number(18, 4, gK230HeadCount);
+            oled_show_string(0, 5, "E:");
+            oled_show_signed_number(18, 5, gK230BadFrameCount);
+            oled_show_string(0, 6, "B:");
+            oled_show_signed_number(18, 6, gK230LastByte);
+            oled_refresh();
+            continue;
+        }
         oled_show_string(0, 0, "L RPM:");
         oled_show_signed_number(48, 0, leftRpm);
         oled_show_string(0, 1, "L SET:");
@@ -219,9 +290,12 @@ int main(void)
         oled_show_signed_number(24, 6, gK230RxByteCount);
         oled_show_string(66, 6, "PK:");
         oled_show_signed_number(90, 6, gK230FrameCount);
-        oled_show_string(0, 7, "CMD:");
-        oled_show_signed_number(36, 7, gK230LastCmd);
-        oled_refresh();
+        oled_show_string(0, 7, "B:");
+        oled_show_signed_number(18, 7, gK230LastByte);
+        oled_show_string(48, 7, "H:");
+        oled_show_signed_number(66, 7, gK230HeadCount);
+        oled_show_string(96, 7, "E:");
+        oled_show_signed_number(114, 7, gK230BadFrameCount);        oled_refresh();
     }
 }
 
@@ -247,6 +321,7 @@ static void k230_poll_uart(void)
         uint8_t data = DL_UART_Main_receiveData(UART_0_INST);
         gK230LastByte = data;
         gK230RxByteCount++;
+        if (UART_DEBUG_ECHO != 0U) { uart_debug_rx_byte(data); }
         k230_parse_byte(data);
     }
 }
@@ -282,7 +357,7 @@ void Motor_Stop(void)
 
 static void motor_set_left(int16_t dutyPercent)
 {
-    int16_t duty = clamp_duty(dutyPercent);
+    int16_t duty = clamp_duty((int32_t) dutyPercent * LEFT_MOTOR_DIRECTION);
 
     if (duty > 0) {
         gpio_write(LEFT_IN1_PORT, LEFT_IN1_PIN, true);
@@ -301,7 +376,7 @@ static void motor_set_left(int16_t dutyPercent)
 
 static void motor_set_right(int16_t dutyPercent)
 {
-    int16_t duty = clamp_duty(dutyPercent);
+    int16_t duty = clamp_duty((int32_t) dutyPercent * RIGHT_MOTOR_DIRECTION);
 
     if (duty > 0) {
         gpio_write(RIGHT_IN1_PORT, RIGHT_IN1_PIN, true);
@@ -445,6 +520,7 @@ static void k230_parse_byte(uint8_t data)
     switch (state) {
         case 0:
             if (data == K230_FRAME_HEAD) {
+                gK230HeadCount++;
                 state = 1;
             }
             break;
@@ -469,6 +545,8 @@ static void k230_parse_byte(uint8_t data)
                 gK230FrameCount++;
                 gK230LastCmd = cmd;
                 k230_handle_packet(cmd, dh, dl);
+            } else {
+                gK230BadFrameCount++;
             }
             state = 0;
             break;
@@ -494,8 +572,7 @@ static void k230_handle_packet(uint8_t cmd, uint8_t dh, uint8_t dl)
             gVisionLineOk = (dl == K230_STATUS_OK);
             break;
         case K230_CMD_TRACK:
-            gVisionDeviation = value;
-            gVisionLineOk = true;
+            gVisionTrackValue = value;
             break;
         default:
             break;
@@ -724,6 +801,22 @@ static void gpio_write(GPIO_Regs *port, uint32_t pin, bool high)
         DL_GPIO_clearPins(port, pin);
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

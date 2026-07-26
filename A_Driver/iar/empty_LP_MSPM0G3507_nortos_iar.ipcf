@@ -74,6 +74,7 @@
 
 
     <files>
+        <path copyTo="$PROJ_DIR$/empty.c">$MSPM0_SDK_INSTALL_DIR$/examples/nortos/LP_MSPM0G3507/driverlib/empty/empty.c</path>
         <path copyTo="$PROJ_DIR$/empty.syscfg">$MSPM0_SDK_INSTALL_DIR$/examples/nortos/LP_MSPM0G3507/driverlib/empty/empty.syscfg</path>
         <path copyTo="$PROJ_DIR$/mspm0g3507.icf">$MSPM0_SDK_INSTALL_DIR$/examples/nortos/LP_MSPM0G3507/driverlib/empty/iar/mspm0g3507.icf</path>
         <path copyTo="$PROJ_DIR$/README.html">$MSPM0_SDK_INSTALL_DIR$/examples/nortos/LP_MSPM0G3507/driverlib/empty/README.html</path>
