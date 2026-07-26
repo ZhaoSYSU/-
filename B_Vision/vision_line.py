@@ -1,15 +1,7 @@
-"""
-智能送药小车 - 完整视觉程序
-=============================
-快通道(每帧): 灰度巡线 + 轨道类型判断 → UART
-慢通道(每10帧): KPU数字识别 → UART
-
-通信: UART1 (GPIO40=TX, GPIO41=RX) → MSPM0 UART1 (PA9=RX, PA8=TX)
-协议: [0xAA][CMD][DH][DL][CS][0x55]
-  CMD 0x01 = 巡线偏差 (int16, -160~+160)
-  CMD 0x02 = 数字识别 (1~8)
-  CMD 0x03 = 视觉状态 (0=OK, 2=丢线)
-  CMD 0x04 = 轨道类型 (straight=0, left=-80, right=80)
+﻿"""
+K230 vision line tracking main program.
+UART protocol: [0xAA][CMD][DH][DL][CHECKSUM][0x55]
+CMD 0x01 deviation, CMD 0x02 digit, CMD 0x03 status, CMD 0x04 track.
 """
 import os, gc, time, math
 from media.display import *
@@ -21,14 +13,15 @@ from libs.Utils import *
 import nncase_runtime as nn
 import ulab.numpy as np
 
-# ==================== 参数 ====================
+# ==================== 鍙傛暟 ====================
 DISPLAY_MODE = "lcd"
 RGB888P_SIZE = [640, 360]
+MODEL_PATH = "/sdcard/examples/kmodel/recognition.kmodel"
 MODEL_PATH = "/sdcard/examples/kmodel/recognition.kmodel"
 MODEL_INPUT = [224, 224]
 FEATURE_DIM = 512
 
-# 巡线
+# 宸＄嚎
 LINE_CENTER = 320
 LINE_ADAPTIVE_RATIO = 0.4
 LINE_MIN_CONTRAST = 30
@@ -40,7 +33,7 @@ LINE_MULTI = [
     (320, 25, 0.3),
 ]
 
-# KPU数字识别
+# KPU鏁板瓧璇嗗埆
 DIGIT_LABELS = ["1", "2", "3", "4", "5", "6", "7", "8"]
 DIGIT_DIR = "/sdcard/features_digit/"
 FEATURES_PER = 3
@@ -56,9 +49,9 @@ UART_BAUD = 115200
 TRACK_VAL = {"straight": 0, "left": -80, "right": 80}
 
 
-# ==================== 时序滤波 ====================
+# ==================== 鏃跺簭婊ゆ尝 ====================
 class TemporalFilter:
-    """滑动窗口锁定机制，消除单帧跳变"""
+    """Temporal label filter."""
     def __init__(self, window=8, lock_in=4, lock_out=6):
         self.history = []
         self.window = window
@@ -89,9 +82,9 @@ class TemporalFilter:
         return self.locked_label, False
 
 
-# ==================== KPU特征识别器 ====================
+# ==================== KPU鐗瑰緛璇嗗埆鍣?====================
 class FeatureRecognizer(AIBase):
-    """基于recognition.kmodel提取图像特征，余弦相似度匹配"""
+    """Feature recognizer using recognition.kmodel."""
     def __init__(self, name, labels, feature_dir, crop_x, crop_y,
                  crop_w, crop_h, box_color, rgb888p_size, display_size):
         super().__init__(MODEL_PATH, MODEL_INPUT, rgb888p_size, 0)
@@ -231,11 +224,9 @@ class FeatureRecognizer(AIBase):
         print("[%s] Training done!" % self.name)
 
 
-# ==================== 巡线 + 轨道类型 ====================
+# ==================== 宸＄嚎 + 杞ㄩ亾绫诲瀷 ====================
 def detect_line(frame_np):
-    """多ROI自适应阈值巡线，线性回归判断轨道类型
-    返回: (angle, deviation, track_type, line_ok)
-    """
+    """Detect line deviation and track type."""
     s = frame_np.shape
     if len(s) == 4:
         h, w = s[2], s[3]
@@ -277,7 +268,7 @@ def detect_line(frame_np):
     angle = -math.atan(deviation / 80.0)
     angle = math.degrees(angle)
 
-    # 线性回归斜率 → 轨道类型
+    # 绾挎€у洖褰掓枩鐜?鈫?杞ㄩ亾绫诲瀷
     track_type = None
     if len(centroids) >= 3:
         ys = np.array([c[0] for c in centroids], dtype=np.float)
@@ -297,48 +288,57 @@ def detect_line(frame_np):
 
 
 # ==================== UART ====================
-def uart_send_deviation(u, deviation):
-    val = deviation & 0xFFFF
+def uart_init():
+    try:
+        print("[INIT] UART1 TX=GPIO%d RX=GPIO%d" % (UART_TX_PIN, UART_RX_PIN))
+        fpioa = FPIOA()
+        fpioa.set_function(UART_TX_PIN, FPIOA.UART1_TXD, ie=0, oe=1)
+        fpioa.set_function(UART_RX_PIN, FPIOA.UART1_RXD, ie=1, oe=0)
+        u = UART(UART.UART1, baudrate=UART_BAUD)
+        print("[INIT] UART1 OK")
+        return u, True
+    except Exception as e:
+        print("[INIT] UART1 FAILED: %s" % str(e))
+        return None, False
+
+def uart_send_frame(u, cmd, value):
+    if not u:
+        return
+    val = int(value) & 0xFFFF
     dh, dl = (val >> 8) & 0xFF, val & 0xFF
-    cs = (0x01 + dh + dl) & 0xFF
-    u.write(bytes([0xAA, 0x01, dh, dl, cs, 0x55]))
+    cs = (cmd + dh + dl) & 0xFF
+    u.write(bytes([0xAA, cmd, dh, dl, cs, 0x55]))
+
+def uart_send_deviation(u, deviation):
+    uart_send_frame(u, 0x01, deviation)
 
 def uart_send_digit(u, digit):
-    d = int(digit) & 0xFF
-    cs = (0x02 + 0 + d) & 0xFF
-    u.write(bytes([0xAA, 0x02, 0, d, cs, 0x55]))
+    uart_send_frame(u, 0x02, int(digit) & 0xFF)
 
 def uart_send_status(u, status):
-    cs = (0x03 + 0 + status) & 0xFF
-    u.write(bytes([0xAA, 0x03, 0, status, cs, 0x55]))
+    uart_send_frame(u, 0x03, status)
 
 def uart_send_track(u, label):
-    v = TRACK_VAL.get(label, 0) & 0xFFFF
-    dh, dl = (v >> 8) & 0xFF, v & 0xFF
-    cs = (0x04 + dh + dl) & 0xFF
-    u.write(bytes([0xAA, 0x04, dh, dl, cs, 0x55]))
+    uart_send_frame(u, 0x04, TRACK_VAL.get(label, 0))
 
+def uart_send_boot_test(u):
+    if not u:
+        return
+    print("[UART] boot test frames")
+    for i in range(10):
+        uart_send_deviation(u, 0)
+        uart_send_status(u, 0)
+        uart_send_track(u, "straight")
+        time.sleep_ms(20)
 
-# ==================== 主流程 ====================
+# ==================== 涓绘祦绋?====================
+uart, uart_ok = uart_init()
+uart_send_boot_test(uart)
+
 print("[INIT] PipeLine...")
 pl = PipeLine(rgb888p_size=RGB888P_SIZE, display_mode=DISPLAY_MODE)
 pl.create()
 ds = pl.get_display_size()
-
-print("[INIT] UART1 TX=GPIO%d RX=GPIO%d" % (UART_TX_PIN, UART_RX_PIN))
-fpioa = FPIOA()
-fpioa.set_function(UART_TX_PIN, FPIOA.UART1_TXD, ie=1, oe=1)
-fpioa.set_function(UART_RX_PIN, FPIOA.UART1_RXD, ie=1, oe=1)
-
-uart_ok = True
-try:
-    uart = UART(UART.UART1, baudrate=UART_BAUD)
-    print("[INIT] UART1 OK")
-except Exception as e:
-    uart = None
-    uart_ok = False
-    print("[INIT] UART1 FAILED: %s" % str(e))
-
 digit = FeatureRecognizer("DIGIT", DIGIT_LABELS, DIGIT_DIR,
     150, 20, 340, 200, (0, 0, 255), RGB888P_SIZE, ds)
 digit.config_preprocess()
@@ -362,14 +362,14 @@ while True:
     img_np = pl.get_frame()
     frame += 1
 
-    # 快通道：每帧巡线 + 轨道类型
+    # 蹇€氶亾锛氭瘡甯у贰绾?+ 杞ㄩ亾绫诲瀷
     angle, dev, cv_track, line_ok = detect_line(img_np)
     t_label, is_new = track_filt.update(cv_track)
     if t_label and is_new and uart:
         print("[TRACK] %s" % t_label)
         uart_send_track(uart, t_label)
 
-    # 慢通道：KPU数字识别
+    # 鎱㈤€氶亾锛欿PU鏁板瓧璇嗗埆
     if frame % KPU_INTERVAL == 0:
         vec = digit.run(img_np)
         raw, score = digit.predict(vec)
@@ -379,12 +379,12 @@ while True:
             if uart:
                 uart_send_digit(uart, d_label)
 
-    # UART巡线偏差 (15Hz)
+    # UART宸＄嚎鍋忓樊 (15Hz)
     if frame % 2 == 0 and uart:
         uart_send_deviation(uart, dev)
         uart_send_status(uart, 0 if line_ok else 2)
 
-    # 显示
+    # 鏄剧ず
     pl.osd_img.clear()
     digit.draw_box(pl, "D:%s" % (d_label or "?"))
     pl.osd_img.draw_string_advanced(10, 10, 20,
@@ -402,3 +402,7 @@ while True:
 
     if frame % 30 == 0:
         gc.collect()
+
+
+
+
