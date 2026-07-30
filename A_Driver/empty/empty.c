@@ -35,20 +35,30 @@
 #define PWM_PERIOD_COUNTS          (3200U)
 #define DEFAULT_TARGET_RPM          (80)
 #define SPEED_SAMPLE_MS            (100U)
-#define DEFAULT_FEEDFORWARD_DUTY_PERCENT (30)
+#define DEFAULT_FEEDFORWARD_DUTY_PERCENT (18)
 #define TARGET_RAMP_RPM_PER_SAMPLE (5)
 #define PID_SCALE                  (1000)
-#define PID_KP                     (220)
-#define PID_KI                     (35)
-#define PID_KD                     (0)
+#define PID_KP                     (1200)
+#define PID_KI                     (0)
+#define PID_KD                     (30)
 #define PID_INTEGRAL_LIMIT         (2500)
 #define DUTY_LIMIT_PERCENT         (100)
+#define MEASURED_RPM_LIMIT         (250)
 
 #define VISION_BASE_RPM            (40)
 #define VISION_TURN_GAIN           (35)
 #define VISION_MAX_RPM             (95)
 #define VISION_LOST_TIMEOUT_MS     (500U)
 #define VISION_DEV_LIMIT           (320)
+
+#define TRACK_SENSOR_COUNT         (8U)
+#define TRACK_SENSOR_ACTIVE_LOW    (1U)
+#define TRACK_SENSOR_REVERSE_ORDER (0U)
+#define TRACK_BASE_RPM             (68)
+#define TRACK_SEARCH_RPM           (20)
+#define TRACK_TURN_GAIN            (3)
+#define TRACK_CENTER_DEADBAND      (1)
+#define TRACK_MAX_RPM              (250)
 
 #define K230_FRAME_HEAD            (0xAAU)
 #define K230_FRAME_TAIL            (0x55U)
@@ -98,6 +108,10 @@
 #define ENC_RIGHT_A_PIN            DL_GPIO_PIN_6
 #define ENC_RIGHT_B_PIN            DL_GPIO_PIN_7
 
+#define USER_LED1_PORT             GPIOB
+#define USER_LED1_PIN              DL_GPIO_PIN_22
+#define USER_LED1_IOMUX            IOMUX_PINCM50
+
 typedef struct {
     int32_t finalTargetRpm;
     int32_t targetRpm;
@@ -115,9 +129,13 @@ static MotorPidController gLeftPid;
 static MotorPidController gRightPid;
 static volatile int16_t gVisionDeviation;
 static volatile int16_t gVisionTrackValue;
+static volatile int16_t gTrackRawValue;
 static volatile bool gVisionLineOk;
 static volatile bool gVisionDataValid;
 static volatile uint32_t gVisionLastRxMs;
+static volatile int16_t gTrackLastError;
+static volatile int16_t gTrackLeftCount;
+static volatile int16_t gTrackRightCount;
 static uint32_t gSystemMs;
 static volatile uint32_t gK230RxByteCount;
 static volatile uint32_t gK230FrameCount;
@@ -140,7 +158,7 @@ static void pid_apply_target_ramp(MotorPidController *pid);
 static int16_t pid_feedforward_duty(int32_t targetRpm);
 static int16_t clamp_duty(int32_t dutyPercent);
 static int32_t clamp_i32(int32_t value, int32_t minValue, int32_t maxValue);
-static int32_t abs_i32(int32_t value);
+static int32_t rpm_from_encoder_delta(int32_t delta);
 static uint8_t encoder_read_left_state(void);
 static uint8_t encoder_read_right_state(void);
 static void encoder_update(void);
@@ -154,7 +172,10 @@ static void oled_write_command(uint8_t command);
 static void oled_write_data(uint8_t data);
 static void oled_write_byte(uint8_t data);
 static void gpio_write(GPIO_Regs *port, uint32_t pin, bool high);
-static void vision_update_target(void);
+static void user_led1_init_on(void);
+static uint8_t track_read_sensor_mask(void);
+static int32_t track_count_active_sensors(uint8_t sensorMask, uint8_t startBit, uint8_t endBit);
+static void track_update_target(void);
 static void k230_parse_byte(uint8_t data);
 static void k230_handle_packet(uint8_t cmd, uint8_t dh, uint8_t dl);
 static void k230_poll_uart(void);
@@ -206,6 +227,7 @@ static void uart_self_test_send(void);
 int main(void)
 {
     SYSCFG_DL_init();
+    user_led1_init_on();
 
     gLeftEncoderState  = encoder_read_left_state();
     gRightEncoderState = encoder_read_right_state();
@@ -216,7 +238,7 @@ int main(void)
     oled_init();
     oled_clear();
     oled_show_string(0, 0, "MSPM0G3507");
-    oled_show_string(0, 2, "MG310 READY");
+    oled_show_string(0, 2, "TRACK READY");
     oled_refresh();
 
     DL_GPIO_setPins(MOTOR_STBY_PORT, MOTOR_STBY_PIN);
@@ -247,12 +269,10 @@ int main(void)
         rightDelta = gRightEncoderCount - rightStart;
         __enable_irq();
 
-        leftRpm = (leftDelta * 60000) /
-                  ((int32_t) ENCODER_COUNTS_PER_REV * SPEED_SAMPLE_MS);
-        rightRpm = (rightDelta * 60000) /
-                   ((int32_t) ENCODER_COUNTS_PER_REV * SPEED_SAMPLE_MS);
+        leftRpm = rpm_from_encoder_delta(leftDelta);
+        rightRpm = rpm_from_encoder_delta(rightDelta);
 
-        vision_update_target();
+        track_update_target();
         motor_set_left(pid_update(&gLeftPid, leftRpm));
         motor_set_right(pid_update(&gRightPid, rightRpm));
 
@@ -282,20 +302,17 @@ int main(void)
         oled_show_signed_number(48, 2, rightRpm);
         oled_show_string(0, 3, "R SET:");
         oled_show_signed_number(48, 3, gRightPid.finalTargetRpm);
-        oled_show_string(0, 4, "DEV:");
-        oled_show_signed_number(36, 4, gVisionDeviation);
-        oled_show_string(0, 5, "OK:");
-        oled_show_signed_number(24, 5, (gVisionDataValid && gVisionLineOk) ? 1 : 0);
-        oled_show_string(0, 6, "RX:");
-        oled_show_signed_number(24, 6, gK230RxByteCount);
-        oled_show_string(66, 6, "PK:");
-        oled_show_signed_number(90, 6, gK230FrameCount);
-        oled_show_string(0, 7, "B:");
-        oled_show_signed_number(18, 7, gK230LastByte);
-        oled_show_string(48, 7, "H:");
-        oled_show_signed_number(66, 7, gK230HeadCount);
-        oled_show_string(96, 7, "E:");
-        oled_show_signed_number(114, 7, gK230BadFrameCount);        oled_refresh();
+        oled_show_string(0, 4, "MASK:");
+        oled_show_signed_number(42, 4, gVisionTrackValue);
+        oled_show_string(0, 5, "ERR:");
+        oled_show_signed_number(36, 5, gVisionDeviation);
+        oled_show_string(0, 6, "LC:");
+        oled_show_signed_number(24, 6, gTrackLeftCount);
+        oled_show_string(60, 6, "RC:");
+        oled_show_signed_number(84, 6, gTrackRightCount);
+        oled_show_string(0, 7, "RAW:");
+        oled_show_signed_number(36, 7, gTrackRawValue);
+        oled_refresh();
     }
 }
 
@@ -395,11 +412,15 @@ static void motor_set_right(int16_t dutyPercent)
 
 static void motor_set_pwm(uint32_t ccIndex, uint8_t dutyPercent)
 {
-    uint32_t compare = ((uint32_t) dutyPercent * PWM_PERIOD_COUNTS) / 100U;
+    uint32_t activeCounts;
+    uint32_t compare;
 
-    if (compare > PWM_PERIOD_COUNTS) {
-        compare = PWM_PERIOD_COUNTS;
+    if (dutyPercent > 100U) {
+        dutyPercent = 100U;
     }
+
+    activeCounts = ((uint32_t) dutyPercent * PWM_PERIOD_COUNTS) / 100U;
+    compare = PWM_PERIOD_COUNTS - activeCounts;
     DL_TimerG_setCaptureCompareValue(MOTOR_PWM_INST, compare, ccIndex);
 }
 
@@ -481,31 +502,124 @@ static int32_t clamp_i32(int32_t value, int32_t minValue, int32_t maxValue)
     return value;
 }
 
-static int32_t abs_i32(int32_t value)
+static int32_t rpm_from_encoder_delta(int32_t delta)
 {
-    return (value < 0) ? -value : value;
+    int64_t rpm = ((int64_t) delta * 60000LL) /
+                  ((int64_t) ENCODER_COUNTS_PER_REV * SPEED_SAMPLE_MS);
+
+    if (rpm > MEASURED_RPM_LIMIT) {
+        return MEASURED_RPM_LIMIT;
+    }
+    if (rpm < -MEASURED_RPM_LIMIT) {
+        return -MEASURED_RPM_LIMIT;
+    }
+    return (int32_t) rpm;
 }
 
-static void vision_update_target(void)
+static uint8_t track_read_sensor_mask(void)
 {
+    static GPIO_Regs *const ports[TRACK_SENSOR_COUNT] = {
+        GPIOA, GPIOA, GPIOB, GPIOB,
+        GPIOB, GPIOB, GPIOB, GPIOA
+    };
+    static const uint32_t pins[TRACK_SENSOR_COUNT] = {
+        TRACK_GPIO_TRACK_1_PIN, TRACK_GPIO_TRACK_2_PIN, TRACK_GPIO_TRACK_3_PIN, TRACK_GPIO_TRACK_4_PIN,
+        TRACK_GPIO_TRACK_5_PIN, TRACK_GPIO_TRACK_6_PIN, TRACK_GPIO_TRACK_7_PIN, TRACK_GPIO_TRACK_8_PIN
+    };
+    uint8_t mask = 0U;
+    uint8_t rawMask = 0U;
+
+    for (uint8_t i = 0U; i < TRACK_SENSOR_COUNT; i++) {
+        bool rawHigh = (DL_GPIO_readPins(ports[i], pins[i]) != 0U);
+        bool active = rawHigh;
+
+        if (rawHigh) {
+            rawMask |= (uint8_t) (1U << i);
+        }
+
+        if (TRACK_SENSOR_ACTIVE_LOW != 0U) {
+            active = !active;
+        }
+        if (active) {
+            mask |= (uint8_t) (1U << i);
+        }
+    }
+    gTrackRawValue = (int16_t) rawMask;
+    return mask;
+}
+
+static int32_t track_count_active_sensors(uint8_t sensorMask, uint8_t startBit, uint8_t endBit)
+{
+    int32_t count = 0;
+
+    for (uint8_t i = startBit; i <= endBit; i++) {
+        if ((sensorMask & (1U << i)) != 0U) {
+            count++;
+        }
+    }
+    return count;
+}
+
+static void track_update_target(void)
+{
+    uint8_t sensorMask;
+    int32_t leftCount;
+    int32_t rightCount;
+    int32_t activeCount;
+    int32_t weightedSum;
     int32_t deviation;
     int32_t turn;
     int32_t leftTarget;
     int32_t rightTarget;
 
-    if ((!gVisionDataValid) || (!gVisionLineOk) ||
-        ((gSystemMs - gVisionLastRxMs) > VISION_LOST_TIMEOUT_MS)) {
-        Motor_Stop();
+    sensorMask = track_read_sensor_mask();
+    gVisionDataValid = true;
+    gVisionTrackValue = (int16_t) sensorMask;
+
+    if (sensorMask == 0U) {
+        gVisionLineOk = false;
+        gVisionDeviation = 0;
+        gTrackLastError = 0;
+        gTrackLeftCount = 0;
+        gTrackRightCount = 0;
+        Motor_SetTargetRPM(TRACK_BASE_RPM, TRACK_BASE_RPM);
         return;
     }
 
-    deviation = clamp_i32(gVisionDeviation, -VISION_DEV_LIMIT, VISION_DEV_LIMIT);
-    turn = (deviation * VISION_TURN_GAIN) / VISION_DEV_LIMIT;
-    leftTarget = VISION_BASE_RPM + turn;
-    rightTarget = VISION_BASE_RPM - turn;
+    gVisionLineOk = true;
+    gVisionLastRxMs = gSystemMs;
 
-    leftTarget = clamp_i32(leftTarget, 0, VISION_MAX_RPM);
-    rightTarget = clamp_i32(rightTarget, 0, VISION_MAX_RPM);
+    leftCount = track_count_active_sensors(sensorMask, 0U, 3U);
+    rightCount = track_count_active_sensors(sensorMask, 4U, 7U);
+    activeCount = leftCount + rightCount;
+    gTrackLeftCount = (int16_t) leftCount;
+    gTrackRightCount = (int16_t) rightCount;
+
+    weightedSum = 0;
+    if ((sensorMask & (1U << 0)) != 0U) { weightedSum -= 7; }
+    if ((sensorMask & (1U << 1)) != 0U) { weightedSum -= 5; }
+    if ((sensorMask & (1U << 2)) != 0U) { weightedSum -= 3; }
+    if ((sensorMask & (1U << 3)) != 0U) { weightedSum -= 1; }
+    if ((sensorMask & (1U << 4)) != 0U) { weightedSum += 1; }
+    if ((sensorMask & (1U << 5)) != 0U) { weightedSum += 3; }
+    if ((sensorMask & (1U << 6)) != 0U) { weightedSum += 5; }
+    if ((sensorMask & (1U << 7)) != 0U) { weightedSum += 7; }
+
+    deviation = weightedSum;
+    if ((activeCount == 2U) && ((sensorMask & ((1U << 3) | (1U << 4))) == ((1U << 3) | (1U << 4)))) {
+        deviation = 0;
+    } else if ((activeCount == 4U) && ((sensorMask & ((1U << 2) | (1U << 3) | (1U << 4) | (1U << 5))) == ((1U << 2) | (1U << 3) | (1U << 4) | (1U << 5)))) {
+        deviation = 0;
+    }
+    gTrackLastError = (int16_t) deviation;
+    gVisionDeviation = (int16_t) deviation;
+
+    turn = deviation * TRACK_TURN_GAIN;
+    leftTarget = TRACK_BASE_RPM + turn;
+    rightTarget = TRACK_BASE_RPM - turn;
+
+    leftTarget = clamp_i32(leftTarget, 0, TRACK_MAX_RPM);
+    rightTarget = clamp_i32(rightTarget, 0, TRACK_MAX_RPM);
     Motor_SetTargetRPM(leftTarget, rightTarget);
 }
 
@@ -558,25 +672,9 @@ static void k230_parse_byte(uint8_t data)
 
 static void k230_handle_packet(uint8_t cmd, uint8_t dh, uint8_t dl)
 {
-    int16_t value = (int16_t) (((uint16_t) dh << 8) | dl);
-
-    gVisionDataValid = true;
-    gVisionLastRxMs = gSystemMs;
-
-    switch (cmd) {
-        case K230_CMD_DEVIATION:
-            gVisionDeviation = value;
-            gVisionLineOk = true;
-            break;
-        case K230_CMD_STATUS:
-            gVisionLineOk = (dl == K230_STATUS_OK);
-            break;
-        case K230_CMD_TRACK:
-            gVisionTrackValue = value;
-            break;
-        default:
-            break;
-    }
+    (void) cmd;
+    (void) dh;
+    (void) dl;
 }
 
 static uint8_t encoder_read_left_state(void)
@@ -691,19 +789,22 @@ static void oled_show_string(uint8_t x, uint8_t page, const char *text)
 static void oled_show_signed_number(uint8_t x, uint8_t page, int32_t value)
 {
     char text[12];
+    uint32_t magnitude;
     uint8_t i = 0U;
     uint8_t start;
 
     if (value < 0) {
         text[i++] = '-';
-        value = -value;
+        magnitude = (uint32_t) (-(value + 1)) + 1U;
+    } else {
+        magnitude = (uint32_t) value;
     }
 
     start = i;
     do {
-        text[i++] = (char) ('0' + (value % 10));
-        value /= 10;
-    } while ((value > 0) && (i < (sizeof(text) - 1U)));
+        text[i++] = (char) ('0' + (magnitude % 10U));
+        magnitude /= 10U;
+    } while ((magnitude > 0U) && (i < (sizeof(text) - 1U)));
 
     for (uint8_t left = start, right = (uint8_t) (i - 1U); left < right; left++, right--) {
         char tmp = text[left];
@@ -791,6 +892,13 @@ static void oled_write_byte(uint8_t data)
         gpio_write(OLED_SCLK_PORT, OLED_SCLK_PIN, true);
         data <<= 1;
     }
+}
+
+static void user_led1_init_on(void)
+{
+    DL_GPIO_initDigitalOutput(USER_LED1_IOMUX);
+    DL_GPIO_setPins(USER_LED1_PORT, USER_LED1_PIN);
+    DL_GPIO_enableOutput(USER_LED1_PORT, USER_LED1_PIN);
 }
 
 static void gpio_write(GPIO_Regs *port, uint32_t pin, bool high)
