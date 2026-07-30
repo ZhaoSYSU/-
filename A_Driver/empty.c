@@ -78,6 +78,19 @@
 #define RIGHT_MOTOR_DIRECTION      (1)
 
 #define LEFT_PWM_INDEX             DL_TIMER_CC_0_INDEX
+
+/* ---- 步进板 UART 通信 ---- */
+#define STEPPER_UART              UART_1_INST
+#define STEPPER_UART_INT_IRQN     UART_1_INST_INT_IRQN
+#define STEPPER_TX_PORT           GPIOA
+#define STEPPER_TX_PIN            DL_GPIO_PIN_8
+#define STEPPER_RX_PORT           GPIOA
+#define STEPPER_RX_PIN            DL_GPIO_PIN_9
+#define STEPPER_BAUD              115200U
+#define STEPPER_FRAME_HEAD        0xAAU
+#define STEPPER_FRAME_TAIL        0x55U
+#define STEPPER_CMD_BALL          0x01U
+#define STEPPER_CMD_CAR           0x05U
 #define RIGHT_PWM_INDEX            DL_TIMER_CC_1_INDEX
 
 #define LEFT_IN1_PORT              GPIOB
@@ -245,6 +258,8 @@ int main(void)
     Motor_Stop();
     DL_TimerG_startCounter(MOTOR_PWM_INST);
 
+    stepper_uart_init();  /* 初始化步进板通信 UART1 */
+
     while (1) {
         int32_t leftStart;
         int32_t rightStart;
@@ -275,6 +290,9 @@ int main(void)
         track_update_target();
         motor_set_left(pid_update(&gLeftPid, leftRpm));
         motor_set_right(pid_update(&gRightPid, rightRpm));
+
+        /* 定期发车速+轨道给步进板 (每100ms一次) */
+        stepper_send_car_status(leftRpm, rightRpm);
 
         oled_clear();
         if (UART_SELF_TEST_MODE != 0U) {
@@ -672,9 +690,11 @@ static void k230_parse_byte(uint8_t data)
 
 static void k230_handle_packet(uint8_t cmd, uint8_t dh, uint8_t dl)
 {
-    (void) cmd;
-    (void) dh;
-    (void) dl;
+    /* CMD 0x01=球X坐标 → 转发给步进板 */
+    if (cmd == STEPPER_CMD_BALL) {
+        stepper_send_frame(STEPPER_CMD_BALL, dh, dl);
+    }
+    (void) cmd; (void) dh; (void) dl;
 }
 
 static uint8_t encoder_read_left_state(void)
@@ -910,8 +930,47 @@ static void gpio_write(GPIO_Regs *port, uint32_t pin, bool high)
     }
 }
 
+/* ==================== 步进板 UART 通信 ==================== */
+/*
+ * UART1: PA8=TX, PA9=RX → 发给步进板
+ * CMD 0x01: ball_x_mm (int16, 由k230_handle_packet转发)
+ * CMD 0x05: track_type(1B) + speed_cms(1B)
+ */
 
+static void stepper_uart_init(void)
+{
+    DL_GPIO_initDigitalOutput(GPIOA, DL_GPIO_PIN_8);  /* TX pin init由SysConfig完成, 此处仅占位 */
+    /* 实际UART1初始化在SysConfig中配置 PA8=TX, PA9=RX, 115200 8N1 */
+}
 
+static void stepper_send_frame(uint8_t cmd, uint8_t dh, uint8_t dl)
+{
+    uint8_t cs = (cmd + dh + dl) & 0xFFU;
+    uint8_t frame[6] = { STEPPER_FRAME_HEAD, cmd, dh, dl, cs, STEPPER_FRAME_TAIL };
+    for (int i = 0; i < 6; i++) {
+        DL_UART_Main_transmitDataBlocking(STEPPER_UART, frame[i]);
+    }
+}
+
+static void stepper_send_car_status(int32_t leftRpm, int32_t rightRpm)
+{
+    static int counter;
+    counter++;
+    if (counter < 10) return;   /* 每10次主循环发一次 (~1Hz) */
+    counter = 0;
+
+    /* 轨道类型: 左右轮速差>15%判定为弯道 */
+    int32_t diff = (leftRpm > rightRpm) ? (leftRpm - rightRpm) : (rightRpm - leftRpm);
+    int32_t avg  = (leftRpm + rightRpm) / 2;
+    uint8_t track = 0;
+    if (avg > 0 && diff * 100 > avg * 15) { track = 1; }  /* 弯道 */
+
+    /* 车速 cm/s: RPM → 线速度 (轮径48mm, 周长150.72mm, RPM→mm/s = RPM*150.72/60 ≈ RPM*2.5) */
+    int32_t speed_mms = (int32_t)(avg * 251 / 100);   /* ≈ avg * 2.51 */
+    uint8_t speed_cms = (uint8_t)(speed_mms / 10);
+
+    stepper_send_frame(STEPPER_CMD_CAR, track, speed_cms);
+}
 
 
 
