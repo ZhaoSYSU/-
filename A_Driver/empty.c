@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2021, Texas Instruments Incorporated
  * All rights reserved.
  *
@@ -81,7 +81,7 @@
 
 #define LEFT_PWM_INDEX             DL_TIMER_CC_0_INDEX
 
-/* ---- 姝ヨ繘鏉?UART 閫氫俊 ---- */
+/* ---- 步进板 UART 通信 ---- */
 #define STEPPER_UART              UART_1_INST
 #define STEPPER_UART_INT_IRQN     UART_1_INST_INT_IRQN
 #define STEPPER_TX_PORT           GPIOA
@@ -263,7 +263,7 @@ int main(void)
     Motor_Stop();
     DL_TimerG_startCounter(MOTOR_PWM_INST);
 
-    stepper_uart_init();  /* 鍒濆鍖栨杩涙澘閫氫俊 UART1 */
+    stepper_uart_init();  /* 初始化步进板通信 UART1 */
 
     while (1) {
         int32_t leftStart;
@@ -296,7 +296,7 @@ int main(void)
         motor_set_left(pid_update(&gLeftPid, leftRpm));
         motor_set_right(pid_update(&gRightPid, rightRpm));
 
-        /* 瀹氭湡鍙戣溅閫?杞ㄩ亾缁欐杩涙澘 (姣?00ms涓€娆? */
+        /* 定期发送车速/轨道给步进板 (每200ms一次) */
         stepper_send_car_status(leftRpm, rightRpm);
 
         if ((gSystemMs % OLED_REFRESH_INTERVAL_MS) != 0U) {
@@ -705,7 +705,7 @@ static void k230_parse_byte(uint8_t data)
 
 static void k230_handle_packet(uint8_t cmd, uint8_t dh, uint8_t dl)
 {
-    /* CMD 0x01=鐞僗鍧愭爣 鈫?杞彂缁欐杩涙澘 */
+    /* CMD 0x01=球坐标 → 转发给步进板 */
     if (cmd == STEPPER_CMD_BALL) {
         stepper_send_frame(STEPPER_CMD_BALL, dh, dl);
     }
@@ -945,34 +945,34 @@ static void gpio_write(GPIO_Regs *port, uint32_t pin, bool high)
     }
 }
 
-/* ==================== 姝ヨ繘鏉?UART 閫氫俊 ==================== */
+/* ==================== 步进板 UART 通信 ==================== */
 /*
- * UART1: PA8=TX, PA9=RX 鈫?鍙戠粰姝ヨ繘鏉?
- * CMD 0x01: ball_x_mm (int16, 鐢眐230_handle_packet杞彂)
+ * UART1: PA8=TX, PA9=RX → 发给步进板
+ * CMD 0x01: ball_x_mm (int16, 由k230_handle_packet转发)
  * CMD 0x05: track_type(1B) + speed_cms(1B)
  */
 
 /*
- * 姝ヨ繘鏉?UART 閫氫俊 鈥?UART1: PA8=TX, PA9=RX
- * 闇€瑕佸湪 SysConfig 涓惎鐢?UART1 澶栬銆?
- * 鏆傛椂鐢?GPIO 妯℃嫙 TX 鍗犱綅; SysConfig 閰嶅ソ鍚庡垹鎺?GPIO 閮ㄥ垎鏀圭敤 UART HW 鍙戦€併€?
+ * 步进板 UART 通信 — UART1: PA8=TX, PA9=RX
+ * 需要在 SysConfig 中启用 UART1 外设。
+ * 暂时用 GPIO 模拟 TX 占位; SysConfig 配好后删掉 GPIO 部分改用 UART HW 发送。
  */
 static void stepper_uart_init(void)
 {
-    /* PA8 鍒濆鍖栦负 GPIO 杈撳嚭浣?*/
+    /* PA8 初始化为 GPIO 输出位 */
     DL_GPIO_initDigitalOutput(IOMUX_PINCM19);  /* PA8 */
     DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_8);
 }
 
 static void stepper_send_frame(uint8_t cmd, uint8_t dh, uint8_t dl)
 {
-    /* SysConfig 鏈厤 UART1 纭欢, 鏆傜敤 PA8 杈撳嚭 GPIO 浠ｆ浛 (涓嶅奖鍝嶈皟 PID) */
+    /* SysConfig 未配 UART1 硬件, 暂用 PA8 输出 GPIO 代替 (不影响调 PID) */
     (void)cmd; (void)dh; (void)dl;
 }
 
 static void stepper_send_car_status(int32_t leftRpm, int32_t rightRpm)
 {
-    /* SysConfig 鏈厤 UART1 纭欢, 鏆備笉鍙戦€佽溅閫熻建閬撴暟鎹?*/
+    /* SysConfig 未配 UART1 硬件, 暂不发送车速轨道数据 */
     (void)leftRpm; (void)rightRpm;
 }
 
