@@ -35,13 +35,13 @@
 #define PWM_PERIOD_COUNTS          (3200U)
 #define DEFAULT_TARGET_RPM          (80)
 #define SPEED_SAMPLE_MS            (50U)
-#define DEFAULT_FEEDFORWARD_DUTY_PERCENT (13)
-#define TARGET_RAMP_RPM_PER_SAMPLE (4)
+#define DEFAULT_FEEDFORWARD_DUTY_PERCENT (24)
+#define TARGET_RAMP_RPM_PER_SAMPLE (12)
 #define OLED_REFRESH_INTERVAL_MS   (200U)
 #define PID_SCALE                  (1000)
-#define PID_KP                     (380)
-#define PID_KI                     (14)
-#define PID_KD                     (90)
+#define PID_KP                     (1050)
+#define PID_KI                     (10)
+#define PID_KD                     (45)
 #define PID_INTEGRAL_LIMIT         (800)
 #define DUTY_LIMIT_PERCENT         (100)
 #define MEASURED_RPM_LIMIT         (250)
@@ -55,11 +55,11 @@
 #define TRACK_SENSOR_COUNT         (8U)
 #define TRACK_SENSOR_ACTIVE_LOW    (1U)
 #define TRACK_SENSOR_REVERSE_ORDER (0U)
-#define TRACK_BASE_RPM             (70)
+#define TRACK_BASE_RPM             (150)
 #define TRACK_SEARCH_RPM           (20)
-#define TRACK_TURN_GAIN            (4)
+#define TRACK_TURN_GAIN            (10)
 #define TRACK_CENTER_DEADBAND      (0)
-#define TRACK_TURN_LIMIT           (40)
+#define TRACK_TURN_LIMIT           (120)
 #define TRACK_MAX_RPM              (250)
 
 #define K230_FRAME_HEAD            (0xAAU)
@@ -296,7 +296,7 @@ int main(void)
         motor_set_left(pid_update(&gLeftPid, leftRpm));
         motor_set_right(pid_update(&gRightPid, rightRpm));
 
-        /* 定期发车速+轨道给步进板 (每100ms一次) */
+        /* 定期发送车速/轨道给步进板 (每200ms一次) */
         stepper_send_car_status(leftRpm, rightRpm);
 
         if ((gSystemMs % OLED_REFRESH_INTERVAL_MS) != 0U) {
@@ -596,7 +596,6 @@ static void track_update_target(void)
     uint8_t sensorMask;
     int32_t leftCount;
     int32_t rightCount;
-    int32_t activeCount;
     int32_t weightedSum;
     int32_t deviation;
     int32_t turn;
@@ -706,7 +705,7 @@ static void k230_parse_byte(uint8_t data)
 
 static void k230_handle_packet(uint8_t cmd, uint8_t dh, uint8_t dl)
 {
-    /* CMD 0x01=球X坐标 → 转发给步进板 */
+    /* CMD 0x01=球坐标 → 转发给步进板 */
     if (cmd == STEPPER_CMD_BALL) {
         stepper_send_frame(STEPPER_CMD_BALL, dh, dl);
     }
@@ -960,7 +959,7 @@ static void gpio_write(GPIO_Regs *port, uint32_t pin, bool high)
  */
 static void stepper_uart_init(void)
 {
-    /* PA8 初始化为 GPIO 输出低 */
+    /* PA8 初始化为 GPIO 输出位 */
     DL_GPIO_initDigitalOutput(IOMUX_PINCM19);  /* PA8 */
     DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_8);
 }
@@ -976,50 +975,6 @@ static void stepper_send_car_status(int32_t leftRpm, int32_t rightRpm)
     /* SysConfig 未配 UART1 硬件, 暂不发送车速轨道数据 */
     (void)leftRpm; (void)rightRpm;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
