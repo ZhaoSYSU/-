@@ -192,6 +192,9 @@ static void track_update_target(void);
 static void k230_parse_byte(uint8_t data);
 static void k230_handle_packet(uint8_t cmd, uint8_t dh, uint8_t dl);
 static void k230_poll_uart(void);
+static void stepper_uart_init(void);
+static void stepper_send_frame(uint8_t cmd, uint8_t dh, uint8_t dl);
+static void stepper_send_car_status(int32_t leftRpm, int32_t rightRpm);
 static void uart_self_test_send(void)
 {
     static const uint8_t frames[] = {
@@ -937,39 +940,28 @@ static void gpio_write(GPIO_Regs *port, uint32_t pin, bool high)
  * CMD 0x05: track_type(1B) + speed_cms(1B)
  */
 
+/*
+ * 步进板 UART 通信 — UART1: PA8=TX, PA9=RX
+ * 需要在 SysConfig 中启用 UART1 外设。
+ * 暂时用 GPIO 模拟 TX 占位; SysConfig 配好后删掉 GPIO 部分改用 UART HW 发送。
+ */
 static void stepper_uart_init(void)
 {
-    DL_GPIO_initDigitalOutput(GPIOA, DL_GPIO_PIN_8);  /* TX pin init由SysConfig完成, 此处仅占位 */
-    /* 实际UART1初始化在SysConfig中配置 PA8=TX, PA9=RX, 115200 8N1 */
+    /* PA8 初始化为 GPIO 输出低 */
+    DL_GPIO_initDigitalOutput(IOMUX_PINCM19);  /* PA8 */
+    DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_8);
 }
 
 static void stepper_send_frame(uint8_t cmd, uint8_t dh, uint8_t dl)
 {
-    uint8_t cs = (cmd + dh + dl) & 0xFFU;
-    uint8_t frame[6] = { STEPPER_FRAME_HEAD, cmd, dh, dl, cs, STEPPER_FRAME_TAIL };
-    for (int i = 0; i < 6; i++) {
-        DL_UART_Main_transmitDataBlocking(STEPPER_UART, frame[i]);
-    }
+    /* SysConfig 未配 UART1 硬件, 暂用 PA8 输出 GPIO 代替 (不影响调 PID) */
+    (void)cmd; (void)dh; (void)dl;
 }
 
 static void stepper_send_car_status(int32_t leftRpm, int32_t rightRpm)
 {
-    static int counter;
-    counter++;
-    if (counter < 10) return;   /* 每10次主循环发一次 (~1Hz) */
-    counter = 0;
-
-    /* 轨道类型: 左右轮速差>15%判定为弯道 */
-    int32_t diff = (leftRpm > rightRpm) ? (leftRpm - rightRpm) : (rightRpm - leftRpm);
-    int32_t avg  = (leftRpm + rightRpm) / 2;
-    uint8_t track = 0;
-    if (avg > 0 && diff * 100 > avg * 15) { track = 1; }  /* 弯道 */
-
-    /* 车速 cm/s: RPM → 线速度 (轮径48mm, 周长150.72mm, RPM→mm/s = RPM*150.72/60 ≈ RPM*2.5) */
-    int32_t speed_mms = (int32_t)(avg * 251 / 100);   /* ≈ avg * 2.51 */
-    uint8_t speed_cms = (uint8_t)(speed_mms / 10);
-
-    stepper_send_frame(STEPPER_CMD_CAR, track, speed_cms);
+    /* SysConfig 未配 UART1 硬件, 暂不发送车速轨道数据 */
+    (void)leftRpm; (void)rightRpm;
 }
 
 
