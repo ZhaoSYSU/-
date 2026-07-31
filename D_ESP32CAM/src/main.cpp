@@ -96,22 +96,19 @@ void setup()
     // MJPEG图传必须优先使用摄像头直接输出JPEG
     config.pixel_format = PIXFORMAT_JPEG;
 
-    /*
-     * 直接以目标分辨率初始化。
-     *
-     * 不再先用VGA初始化、再切换到低分辨率，
-     * 避免为较大的图像预留不必要的帧缓冲。
-     */
-    config.frame_size = FRAMESIZE_QQVGA; // 160 × 120
+   /*
+ * 初始化时按网页允许的最高分辨率预留Frame Buffer。
+ * 当前网页最高允许VGA，所以初始化使用VGA。
+ *
+ * 初始化完成后，再把实际默认分辨率切换回QQVGA。
+ */
+config.frame_size = hasPSRAM
+    ? FRAMESIZE_VGA
+    : FRAMESIZE_QQVGA;
 
-    /*
-     * JPEG质量参数：
-     * 数字越小，画质越高、数据量越大；
-     * 数字越大，压缩越强、数据量越小。
-     *
-     * 30作为第一次测试的折中值。
-     */
-    config.jpeg_quality = 30;
+config.jpeg_quality = hasPSRAM
+    ? 24
+    : 35;
 
     if (hasPSRAM)
     {
@@ -138,7 +135,6 @@ void setup()
         config.fb_count = 1;
         config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
         config.fb_location = CAMERA_FB_IN_DRAM;
-        config.jpeg_quality = 35;
     }
 
     // ========================================
@@ -200,8 +196,8 @@ void setup()
         /*
          * 上下翻转 + 水平镜像 = 旋转180°。
          */
-        sensor->set_vflip(sensor, 1);
-        sensor->set_hmirror(sensor, 1);
+        sensor->set_vflip(sensor, 0);
+        sensor->set_hmirror(sensor, 0);
     }
 
     // 再次确认实际运行参数
