@@ -14,7 +14,7 @@
         name="empty_LP_MSPM0G3507_nortos_ticlang"
         configurations="Debug"
         toolChain="TICLANG"
-        connection="TIXDS110_Connection.xml"
+        connection="segger_j-link_connection.xml"
         device="MSPM0G3507"
         ignoreDefaultDeviceSettings="true"
         ignoreDefaultCCSSettings="true"
