@@ -888,9 +888,26 @@ static void App_PrintWiring(void)
     printf("========================================\r\n\r\n");
 }
 
+/* Low-level UART output for printf — works with both TI Clang (libc.a) and GCC (newlib).
+ * TI Clang uses _write(), GCC newlib uses fputc(). Provide both. */
+int _write(int fd, const char *buf, size_t count)
+{
+    (void)fd;
+    for (size_t i = 0U; i < count; i++) {
+        if (buf[i] == '\n') {
+            DL_UART_Main_transmitDataBlocking(DEBUG_UART, (uint8_t)'\r');
+        }
+        DL_UART_Main_transmitDataBlocking(DEBUG_UART, (uint8_t)buf[i]);
+    }
+    return (int)count;
+}
+
 int fputc(int ch, FILE *stream)
 {
     (void)stream;
+    if (ch == '\n') {
+        DL_UART_Main_transmitDataBlocking(DEBUG_UART, (uint8_t)'\r');
+    }
     DL_UART_Main_transmitDataBlocking(DEBUG_UART, (uint8_t)ch);
     return ch;
 }
