@@ -1,14 +1,14 @@
 """
-H题钢球坐标主程序: 触摸选择竖直零轴 + YOLO 识别钢球
+H题钢球坐标主程序 (精简版)
 
-启动菜单:
-- default: 使用屏幕中心竖直线作为 x=0, 直接进入识别
-- new: 触摸选择竖直线位置, 再 ok/delete 确认
+上电直接进入零轴微调界面, 简化触摸逻辑:
+- 触摸每 2 帧轮询一次, 降低 read(1) 阻塞影响
+- 按下沿只取 EVENT_DOWN, 不做复杂状态机
+- 删除 new/menu/pick/confirm 多模式
 
-主程序:
-- 只取最高置信度钢球框
-- 显示相对竖直零轴的 X 坐标
-- UART 输出 X(mm): AA 01 DH DL CS 55
+模式:
+- ADJUST: -3/+3 微调零轴, save & run 保存并进入识别
+- RUN:    YOLO 钢球识别 + UART 输出, 点 x 返回 ADJUST
 """
 from libs.PipeLine import PipeLine
 from libs.YOLO import YOLO11
@@ -28,48 +28,62 @@ CONF_THRESH = 0.50
 NMS_THRESH = 0.45
 MAX_BOXES = 10
 
-PX_TO_MM = 0.5
+try:
+    with open("/sdcard/px_to_mm.txt", "r") as _f:
+        PX_TO_MM = float(_f.read().strip())
+    print("[INIT] px_to_mm=%.3f (from file)" % PX_TO_MM)
+except Exception:
+    PX_TO_MM = 0.5
+    print("[INIT] px_to_mm=%.3f (default)" % PX_TO_MM)
+
 SAVE_PATH = "/sdcard/axis_x.txt"
+# SAVE_PATH_NEW = "/sdcard/axis_x_new.txt"  # 已删除 new 功能
 
 UART_TX = 40
 UART_RX = 41
 UART_BAUD = 115200
 
-
-MODE_MENU = 0
-MODE_PICK = 1
-MODE_CONFIRM = 2
-MODE_RUN = 3
+MODE_ADJUST = 0
+MODE_RUN = 1
+# MODE_MENU   = 2  # 已删除, 上电直接进 ADJUST
+# MODE_PICK   = 3  # 已删除 new 功能
+# MODE_CONFIRM= 4  # 已删除 new 功能
 
 
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
-def save_axis_x(axis_x):
+def save_axis_x(path, axis_x):
     try:
-        with open(SAVE_PATH, "w") as f:
+        with open(path, "w") as f:
             f.write(str(int(axis_x)))
-        print("[AXIS] saved x0=%d" % int(axis_x))
+        print("[AXIS] saved x0=%d to %s" % (int(axis_x), path))
     except Exception as e:
         print("[SAVE_FAIL] %s" % str(e))
 
 
-def read_saved_axis(default_x):
+def read_saved_axis(path, default_x):
     try:
-        with open(SAVE_PATH, "r") as f:
+        with open(path, "r") as f:
             return int(f.read().strip())
     except Exception:
         return default_x
 
 
 def read_touch(dev):
+    """读取触摸, 返回 (x, y, is_down) 或 None。
+
+    只读 1 个事件, FIFO 空时立即返回 None, 不阻塞。
+    is_down: 当前帧 EVENT_DOWN 或 EVENT_MOVE (手指在屏上)
+    """
     try:
-        points = dev.read(1)
-        if len(points):
-            p = points[0]
-            pressed = p.event == TOUCH.EVENT_DOWN or p.event == TOUCH.EVENT_MOVE
-            return int(p.x), int(p.y), pressed
+        one = dev.read(1)
+        if not one:
+            return None
+        p = one[0]
+        pressed = (p.event == TOUCH.EVENT_DOWN or p.event == TOUCH.EVENT_MOVE)
+        return int(p.x), int(p.y), pressed
     except Exception as e:
         print("[TOUCH_READ_FAIL] %s" % str(e))
     return None
@@ -101,17 +115,12 @@ def pick_best_marble(result):
         n = min(len(boxes), len(cls_ids), len(scores))
         if n <= 0:
             return None, result
-
         best = 0
         for i in range(1, n):
             if float(scores[i]) > float(scores[best]):
                 best = i
-
         box = boxes[best]
-        x = int(box[0])
-        y = int(box[1])
-        w = int(box[2])
-        h = int(box[3])
+        x, y, w, h = int(box[0]), int(box[1]), int(box[2]), int(box[3])
         score = float(scores[best])
         cls_id = int(cls_ids[best])
         det = {
@@ -146,6 +155,7 @@ def init_uart():
         return None
 
 
+# ==================== 初始化 ====================
 uart = init_uart()
 touch = TOUCH(0)
 
@@ -155,36 +165,59 @@ ds = pl.get_display_size()
 display_w, display_h = ds[0], ds[1]
 
 yolo = YOLO11(
-    task_type="detect",
-    mode="video",
-    kmodel_path=KMODEL_PATH,
-    labels=LABELS,
-    rgb888p_size=RGB888P_SIZE,
-    model_input_size=MODEL_INPUT,
-    display_size=ds,
-    conf_thresh=CONF_THRESH,
-    nms_thresh=NMS_THRESH,
-    max_boxes_num=MAX_BOXES,
+    task_type="detect", mode="video",
+    kmodel_path=KMODEL_PATH, labels=LABELS,
+    rgb888p_size=RGB888P_SIZE, model_input_size=MODEL_INPUT,
+    display_size=ds, conf_thresh=CONF_THRESH,
+    nms_thresh=NMS_THRESH, max_boxes_num=MAX_BOXES,
     debug_mode=0
 )
 yolo.config_preprocess()
 
-default_btn = (display_w // 2 - 250, display_h // 2 - 70, 210, 90)
-new_btn = (display_w // 2 + 40, display_h // 2 - 70, 210, 90)
-ok_btn = (display_w // 2 - 250, display_h - 120, 210, 80)
-delete_btn = (display_w // 2 + 40, display_h - 120, 210, 80)
-exit_btn = (display_w - 80, 10, 60, 60)
+# NPU 首帧预热
+print("[INIT] NPU warm-up start...")
+_warmup_t0 = time.ticks_ms()
+try:
+    _warmup_img = pl.get_frame()
+    if _warmup_img:
+        _ = yolo.run(_warmup_img)
+        gc.collect()
+    print("[INIT] NPU warm-up done (%dms)" % time.ticks_diff(time.ticks_ms(), _warmup_t0))
+except Exception as e:
+    print("[INIT] NPU warm-up FAIL: %s" % str(e))
 
-mode = MODE_MENU
-axis_x = clamp(read_saved_axis(display_w // 2), 0, display_w - 1)
-selected_axis_x = axis_x
+# 丢弃上电瞬间的触摸噪声
+for _ in range(5):
+    try:
+        touch.read(1)
+    except Exception:
+        pass
+
+# ==================== 按钮布局 ====================
+adj_l1_btn  = (display_w // 2 - 140, display_h // 2 + 20, 100, 70)
+adj_r1_btn  = (display_w // 2 + 40,  display_h // 2 + 20, 100, 70)
+save_btn    = (display_w // 2 - 120, display_h - 130, 240, 80)
+exit_btn    = (display_w - 80, 10, 60, 60)
+
+# 已删除的按钮 (new 功能)
+# default_btn = (display_w // 2 - 250, display_h // 2 - 70, 210, 90)
+# new_btn     = (display_w // 2 + 40, display_h // 2 - 70, 210, 90)
+# ok_btn      = (display_w // 2 - 250, display_h - 120, 210, 80)
+# delete_btn  = (display_w // 2 + 40, display_h - 120, 210, 80)
+
+# ==================== 状态变量 ====================
+mode = MODE_ADJUST  # 上电直接进微调界面
+axis_x = clamp(read_saved_axis(SAVE_PATH, display_w // 2), 0, display_w - 1)
 last_x_mm = 0
+
+# 简化触摸: 只记上一帧是否按下 + 当前帧坐标
 touch_was_down = False
-ignore_until_release = False
+touch_x, touch_y = 0, 0
+
 frame = 0
 clock = time.clock()
 
-print("[RUN] marble touch axis main")
+print("[RUN] boot to ADJUST, axis_x=%d" % axis_x)
 
 while True:
     os.exitpoint()
@@ -192,74 +225,65 @@ while True:
     frame += 1
 
     img = pl.get_frame()
-    tp = read_touch(touch)
-    touch_down = False
-    touch_x, touch_y = 0, 0
-    touch_pressed_edge = False
-    if tp:
-        touch_x, touch_y, touch_down = tp
-        if ignore_until_release:
-            if not touch_down:
-                ignore_until_release = False
+
+    # ---- 触摸轮询 (每 2 帧读一次, 降低 read(1) 潜在阻塞的影响) ----
+    touch_just_pressed = False
+    if frame % 2 == 0:
+        tp = read_touch(touch)
+        if tp:
+            tx, ty, down = tp
+            touch_x, touch_y = tx, ty
+            if down and not touch_was_down:
+                touch_just_pressed = True
+            touch_was_down = down
         else:
-            touch_pressed_edge = touch_down and not touch_was_down
-    touch_was_down = touch_down
+            touch_was_down = False
 
     pl.osd_img.clear()
 
-    if mode == MODE_MENU:
-        draw_button(pl.osd_img, default_btn, "default", (0, 255, 0))
-        draw_button(pl.osd_img, new_btn, "new", (255, 255, 0))
-        pl.osd_img.draw_string_advanced(20, 20, 24, "Select x=0 vertical axis", color=(255, 255, 255))
-
-        if touch_pressed_edge:
-            if in_rect(touch_x, touch_y, default_btn):
-                axis_x = display_w // 2
-                mode = MODE_RUN
-            elif in_rect(touch_x, touch_y, new_btn):
-                selected_axis_x = display_w // 2
-                mode = MODE_PICK
-
-    elif mode == MODE_PICK:
-        if touch_pressed_edge and not in_rect(touch_x, touch_y, ok_btn) and not in_rect(touch_x, touch_y, delete_btn):
-            selected_axis_x = clamp(touch_x, 0, display_w - 1)
-            mode = MODE_CONFIRM
-
-        pl.osd_img.draw_line(selected_axis_x, 0, selected_axis_x, display_h - 1,
+    # ==================== ADJUST 模式 ====================
+    if mode == MODE_ADJUST:
+        pl.osd_img.draw_line(axis_x, 0, axis_x, display_h - 1,
                              color=(0, 255, 0), thickness=2)
-        pl.osd_img.draw_string_advanced(
-            20, 20, 24,
-            "Tap screen to set x=0",
-            color=(255, 255, 255)
-        )
+        draw_button(pl.osd_img, adj_l1_btn, "-3", (0, 200, 255))
+        draw_button(pl.osd_img, adj_r1_btn, "+3", (0, 200, 255))
+        draw_button(pl.osd_img, save_btn, "save & run", (0, 255, 0))
+        pl.osd_img.draw_string_advanced(20, 20, 24,
+                                        "x0=%d  tap -3/+3  hold=fast" % axis_x,
+                                        color=(255, 255, 255))
 
-    elif mode == MODE_CONFIRM:
-        pl.osd_img.draw_line(selected_axis_x, 0, selected_axis_x, display_h - 1,
-                             color=(0, 255, 0), thickness=2)
-        draw_button(pl.osd_img, ok_btn, "ok", (0, 255, 0))
-        draw_button(pl.osd_img, delete_btn, "delete", (255, 0, 0))
-        pl.osd_img.draw_string_advanced(20, 20, 24, "x0=%d" % selected_axis_x, color=(255, 255, 255))
-
-        if touch_pressed_edge:
-            if in_rect(touch_x, touch_y, ok_btn):
-                axis_x = selected_axis_x
-                save_axis_x(axis_x)
+        if touch_just_pressed:
+            if in_rect(touch_x, touch_y, adj_l1_btn):
+                axis_x = clamp(axis_x - 3, 0, display_w - 1)
+            elif in_rect(touch_x, touch_y, adj_r1_btn):
+                axis_x = clamp(axis_x + 3, 0, display_w - 1)
+            elif in_rect(touch_x, touch_y, save_btn):
+                save_axis_x(SAVE_PATH, axis_x)
                 mode = MODE_RUN
-                ignore_until_release = True
-            elif in_rect(touch_x, touch_y, delete_btn):
-                mode = MODE_PICK
-                ignore_until_release = True
 
+        # 按住不放时连续微调 (每 5 帧触发一次)
+        if touch_was_down:
+            if in_rect(touch_x, touch_y, adj_l1_btn) and frame % 5 == 0:
+                axis_x = clamp(axis_x - 3, 0, display_w - 1)
+            elif in_rect(touch_x, touch_y, adj_r1_btn) and frame % 5 == 0:
+                axis_x = clamp(axis_x + 3, 0, display_w - 1)
+
+    # ==================== RUN 模式 ====================
     elif mode == MODE_RUN:
-        res = yolo.run(img)
+        try:
+            res = yolo.run(img)
+        except Exception as e:
+            print("[YOLO_CRASH] %s, skip frame" % str(e))
+            res = ([], [], [])
         det, best_res = pick_best_marble(res)
         yolo.draw_result(best_res, pl.osd_img)
-        pl.osd_img.draw_line(axis_x, 0, axis_x, display_h - 1, color=(0, 255, 0), thickness=2)
+        pl.osd_img.draw_line(axis_x, 0, axis_x, display_h - 1,
+                             color=(0, 255, 0), thickness=2)
         draw_button(pl.osd_img, exit_btn, "x", (255, 0, 0))
 
-        # Top-left touch or exit button goes back to menu for quick recalibration.
-        if touch_pressed_edge and (touch_x < 120 and touch_y < 80 or in_rect(touch_x, touch_y, exit_btn)):
-            mode = MODE_MENU
+        if touch_just_pressed:
+            if touch_x < 120 and touch_y < 80 or in_rect(touch_x, touch_y, exit_btn):
+                mode = MODE_ADJUST
 
         if det:
             cx = int(det["cx"])
@@ -288,5 +312,5 @@ while True:
                 uart_send_x(uart, last_x_mm)
 
     pl.show_image()
-    if frame % 60 == 0:
+    if frame % 15 == 0:
         gc.collect()

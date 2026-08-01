@@ -35,13 +35,13 @@ except ImportError:
 HAS_PLOT = False
 try:
     import matplotlib
-    matplotlib.use('QtAgg')  # or 'TkAgg'
+    matplotlib.use('QtAgg')
     import matplotlib.pyplot as plt
     import matplotlib.animation as animation
     from collections import deque
     HAS_PLOT = True
-except ImportError:
-    pass
+except Exception:
+    pass  # matplotlib not available, plotting disabled
 
 
 # ==================== Data Model ====================

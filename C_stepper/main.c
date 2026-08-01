@@ -236,7 +236,6 @@ static void Cmd_SelfTest(void)
 static void Cmd_Handle(void)
 {
     char *token;
-    float val_f;
     int   val_i;
 
     if (!g_cmd_ready) return;
