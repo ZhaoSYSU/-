@@ -36,12 +36,12 @@
 #define DEFAULT_TARGET_RPM          (80)
 #define SPEED_SAMPLE_MS            (50U)
 #define DEFAULT_FEEDFORWARD_DUTY_PERCENT (24)
-#define TARGET_RAMP_RPM_PER_SAMPLE (12)
+#define TARGET_RAMP_RPM_PER_SAMPLE (16)
 #define OLED_REFRESH_INTERVAL_MS   (200U)
 #define PID_SCALE                  (1000)
-#define PID_KP                     (1050)
+#define PID_KP                     (800)
 #define PID_KI                     (10)
-#define PID_KD                     (45)
+#define PID_KD                     (20)
 #define PID_INTEGRAL_LIMIT         (800)
 #define DUTY_LIMIT_PERCENT         (100)
 #define MEASURED_RPM_LIMIT         (250)
@@ -55,9 +55,10 @@
 #define TRACK_SENSOR_COUNT         (8U)
 #define TRACK_SENSOR_ACTIVE_LOW    (1U)
 #define TRACK_SENSOR_REVERSE_ORDER (0U)
-#define TRACK_BASE_RPM             (150)
+#define TRACK_BASE_RPM             (120)
 #define TRACK_SEARCH_RPM           (20)
-#define TRACK_TURN_GAIN            (10)
+#define TRACK_WEIGHT_Q             (30)
+#define TRACK_TURN_GAIN            (TRACK_WEIGHT_Q)
 #define TRACK_CENTER_DEADBAND      (0)
 #define TRACK_TURN_LIMIT           (120)
 #define TRACK_MAX_RPM              (250)
@@ -81,7 +82,7 @@
 
 #define LEFT_PWM_INDEX             DL_TIMER_CC_0_INDEX
 
-/* ---- 步进板 UART 通信 ---- */
+/* ---- 步进�?UART 通信 ---- */
 #define STEPPER_UART              UART_1_INST
 #define STEPPER_UART_INT_IRQN     UART_1_INST_INT_IRQN
 #define STEPPER_TX_PORT           GPIOA
@@ -126,6 +127,9 @@
 #define USER_LED1_PORT             GPIOB
 #define USER_LED1_PIN              DL_GPIO_PIN_22
 #define USER_LED1_IOMUX            IOMUX_PINCM50
+#define START_BUTTON_PORT          GPIOB
+#define START_BUTTON_PIN           DL_GPIO_PIN_21
+#define START_BUTTON_IOMUX         IOMUX_PINCM49
 
 typedef struct {
     int32_t finalTargetRpm;
@@ -135,6 +139,16 @@ typedef struct {
     int32_t lastError;
     int16_t dutyPercent;
 } MotorPidController;
+
+typedef enum {
+    CAR_STATE_IDLE = 0,
+    CAR_STATE_RUNNING,
+    CAR_STATE_STOPPED
+} CarRunState;
+
+static volatile CarRunState gCarState;
+static volatile uint32_t gRunElapsedMs;
+static volatile bool gStartButtonWasPressed;
 static volatile int32_t gLeftEncoderCount;
 static volatile int32_t gRightEncoderCount;
 static uint8_t gLeftEncoderState;
@@ -190,7 +204,12 @@ static void gpio_write(GPIO_Regs *port, uint32_t pin, bool high);
 static void user_led1_init_on(void);
 static uint8_t track_read_sensor_mask(void);
 static int32_t track_count_active_sensors(uint8_t sensorMask, uint8_t startBit, uint8_t endBit);
-static void track_update_target(void);
+static bool track_update_target(void);
+static bool start_button_is_pressed(void);
+static void track_service_button(void);
+static void track_start_cycle(void);
+static void track_stop_cycle(void);
+static void track_update_oled(int32_t leftRpm, int32_t rightRpm);
 static void k230_parse_byte(uint8_t data);
 static void k230_handle_packet(uint8_t cmd, uint8_t dh, uint8_t dl);
 static void k230_poll_uart(void);
@@ -254,16 +273,18 @@ int main(void)
     NVIC_EnableIRQ(UART_0_INST_INT_IRQN);
 
     oled_init();
-    oled_clear();
-    oled_show_string(0, 0, "MSPM0G3507");
-    oled_show_string(0, 2, "TRACK READY");
+    track_update_oled(0, 0);
     oled_refresh();
 
     DL_GPIO_setPins(MOTOR_STBY_PORT, MOTOR_STBY_PIN);
     Motor_Stop();
     DL_TimerG_startCounter(MOTOR_PWM_INST);
 
-    stepper_uart_init();  /* 初始化步进板通信 UART1 */
+    stepper_uart_init();
+
+    gCarState = CAR_STATE_IDLE;
+    gRunElapsedMs = 0U;
+    gStartButtonWasPressed = start_button_is_pressed();
 
     while (1) {
         int32_t leftStart;
@@ -272,6 +293,7 @@ int main(void)
         int32_t rightDelta;
         int32_t leftRpm;
         int32_t rightRpm;
+        bool stopRequested;
 
         __disable_irq();
         leftStart  = gLeftEncoderCount;
@@ -289,56 +311,32 @@ int main(void)
         rightDelta = gRightEncoderCount - rightStart;
         __enable_irq();
 
-        leftRpm = rpm_from_encoder_delta(leftDelta);
-        rightRpm = rpm_from_encoder_delta(rightDelta);
+        if (gCarState == CAR_STATE_RUNNING) {
+            leftRpm = rpm_from_encoder_delta(leftDelta);
+            rightRpm = rpm_from_encoder_delta(rightDelta);
+            gRunElapsedMs += SPEED_SAMPLE_MS;
 
-        track_update_target();
-        motor_set_left(pid_update(&gLeftPid, leftRpm));
-        motor_set_right(pid_update(&gRightPid, rightRpm));
+            stopRequested = track_update_target();
+            if (stopRequested) {
+                track_stop_cycle();
+                leftRpm = 0;
+                rightRpm = 0;
+            } else {
+                motor_set_left(pid_update(&gLeftPid, leftRpm));
+                motor_set_right(pid_update(&gRightPid, rightRpm));
+            }
+        } else {
+            leftRpm = 0;
+            rightRpm = 0;
+        }
 
-        /* 定期发送车速/轨道给步进板 (每200ms一次) */
         stepper_send_car_status(leftRpm, rightRpm);
 
         if ((gSystemMs % OLED_REFRESH_INTERVAL_MS) != 0U) {
             continue;
         }
 
-        oled_clear();
-        if (UART_SELF_TEST_MODE != 0U) {
-            oled_show_string(0, 0, "UART TEST");
-            oled_show_string(0, 1, "TX:");
-            oled_show_signed_number(24, 1, gUartSelfTestTxCount);
-            oled_show_string(0, 2, "RX:");
-            oled_show_signed_number(24, 2, gK230RxByteCount);
-            oled_show_string(0, 3, "PK:");
-            oled_show_signed_number(24, 3, gK230FrameCount);
-            oled_show_string(0, 4, "H:");
-            oled_show_signed_number(18, 4, gK230HeadCount);
-            oled_show_string(0, 5, "E:");
-            oled_show_signed_number(18, 5, gK230BadFrameCount);
-            oled_show_string(0, 6, "B:");
-            oled_show_signed_number(18, 6, gK230LastByte);
-            oled_refresh();
-            continue;
-        }
-        oled_show_string(0, 0, "L RPM:");
-        oled_show_signed_number(48, 0, leftRpm);
-        oled_show_string(0, 1, "L SET:");
-        oled_show_signed_number(48, 1, gLeftPid.finalTargetRpm);
-        oled_show_string(0, 2, "R RPM:");
-        oled_show_signed_number(48, 2, rightRpm);
-        oled_show_string(0, 3, "R SET:");
-        oled_show_signed_number(48, 3, gRightPid.finalTargetRpm);
-        oled_show_string(0, 4, "MASK:");
-        oled_show_signed_number(42, 4, gVisionTrackValue);
-        oled_show_string(0, 5, "ERR:");
-        oled_show_signed_number(36, 5, gVisionDeviation);
-        oled_show_string(0, 6, "LC:");
-        oled_show_signed_number(24, 6, gTrackLeftCount);
-        oled_show_string(60, 6, "RC:");
-        oled_show_signed_number(84, 6, gTrackRightCount);
-        oled_show_string(0, 7, "RAW:");
-        oled_show_signed_number(36, 7, gTrackRawValue);
+        track_update_oled(leftRpm, rightRpm);
         oled_refresh();
     }
 }
@@ -374,9 +372,67 @@ static void delay_ms_with_k230_poll(uint32_t ms)
 {
     for (uint32_t i = 0; i < ms; i++) {
         k230_poll_uart();
+        track_service_button();
         delay_cycles(CPUCLK_FREQ / 1000U);
     }
     k230_poll_uart();
+    track_service_button();
+}
+
+static bool start_button_is_pressed(void)
+{
+    return (DL_GPIO_readPins(START_BUTTON_PORT, START_BUTTON_PIN) == 0U);
+}
+
+static void track_service_button(void)
+{
+    bool pressed = start_button_is_pressed();
+    bool edge = pressed && !gStartButtonWasPressed;
+
+    gStartButtonWasPressed = pressed;
+    if (edge && (gCarState != CAR_STATE_RUNNING)) {
+        track_start_cycle();
+    }
+}
+
+static void track_start_cycle(void)
+{
+    gCarState = CAR_STATE_RUNNING;
+    gRunElapsedMs = 0U;
+    gVisionLineOk = false;
+    gVisionDataValid = false;
+    gVisionDeviation = 0;
+    gVisionTrackValue = 0;
+    gTrackRawValue = 0;
+    gTrackLastError = 0;
+    gTrackLeftCount = 0;
+    gTrackRightCount = 0;
+    gVisionLastRxMs = gSystemMs;
+    Motor_SetTargetRPM(TRACK_BASE_RPM, TRACK_BASE_RPM);
+}
+
+static void track_stop_cycle(void)
+{
+    gCarState = CAR_STATE_STOPPED;
+    Motor_Stop();
+}
+
+static void track_update_oled(int32_t leftRpm, int32_t rightRpm)
+{
+    oled_clear();
+    oled_show_string(0, 0, "L T:");
+    oled_show_signed_number(36, 0, gLeftPid.finalTargetRpm);
+    oled_show_string(72, 0, "A:");
+    oled_show_signed_number(90, 0, leftRpm);
+
+    oled_show_string(0, 2, "R T:");
+    oled_show_signed_number(36, 2, gRightPid.finalTargetRpm);
+    oled_show_string(72, 2, "A:");
+    oled_show_signed_number(90, 2, rightRpm);
+
+    oled_show_string(0, 4, "T:");
+    oled_show_signed_number(24, 4, (int32_t) (gRunElapsedMs / 1000U));
+    oled_show_string(60, 4, "s");
 }
 
 void Motor_SetTargetRPM(int32_t leftRpm, int32_t rightRpm)
@@ -453,7 +509,7 @@ static void motor_set_pwm(uint32_t ccIndex, uint8_t dutyPercent)
 
 static void pid_set_target(MotorPidController *pid, int32_t targetRpm)
 {
-    pid->finalTargetRpm = clamp_i32(targetRpm, -VISION_MAX_RPM, VISION_MAX_RPM);
+    pid->finalTargetRpm = clamp_i32(targetRpm, -TRACK_MAX_RPM, TRACK_MAX_RPM);
     if (pid->finalTargetRpm == 0) {
         pid->errorSum = 0;
         pid->lastError = 0;
@@ -591,14 +647,14 @@ static int32_t track_count_active_sensors(uint8_t sensorMask, uint8_t startBit, 
     return count;
 }
 
-static void track_update_target(void)
+static bool track_update_target(void)
 {
     uint8_t sensorMask;
     int32_t leftCount;
     int32_t rightCount;
-    int32_t weightedSum;
+    int32_t leftLevel;
+    int32_t rightLevel;
     int32_t deviation;
-    int32_t turn;
     int32_t leftTarget;
     int32_t rightTarget;
 
@@ -613,7 +669,7 @@ static void track_update_target(void)
         gTrackLeftCount = 0;
         gTrackRightCount = 0;
         Motor_SetTargetRPM(TRACK_BASE_RPM, TRACK_BASE_RPM);
-        return;
+        return false;
     }
 
     gVisionLineOk = true;
@@ -621,39 +677,81 @@ static void track_update_target(void)
 
     leftCount = track_count_active_sensors(sensorMask, 0U, 3U);
     rightCount = track_count_active_sensors(sensorMask, 4U, 7U);
-    activeCount = leftCount + rightCount;
     gTrackLeftCount = (int16_t) leftCount;
     gTrackRightCount = (int16_t) rightCount;
 
-    weightedSum = 0;
-    if ((sensorMask & (1U << 0)) != 0U) { weightedSum -= 7; }
-    if ((sensorMask & (1U << 1)) != 0U) { weightedSum -= 5; }
-    if ((sensorMask & (1U << 2)) != 0U) { weightedSum -= 3; }
-    if ((sensorMask & (1U << 3)) != 0U) { weightedSum -= 1; }
-    if ((sensorMask & (1U << 4)) != 0U) { weightedSum += 1; }
-    if ((sensorMask & (1U << 5)) != 0U) { weightedSum += 3; }
-    if ((sensorMask & (1U << 6)) != 0U) { weightedSum += 5; }
-    if ((sensorMask & (1U << 7)) != 0U) { weightedSum += 7; }
+    if ((leftCount + rightCount) >= 4) {
+        gTrackLastError = 0;
+        gVisionDeviation = 0;
+        Motor_SetTargetRPM(0, 0);
+        return true;
+    }
 
-    deviation = weightedSum;
-    if ((sensorMask & ((1U << 3) | (1U << 4))) != 0U) {
+    /*
+     * Direction control rule:
+     * - L4 or L5, or L4 + L5: left = B, right = B.
+     * - L6: left = B + Q, right = B.
+     * - L7: left = B + 2Q, right = B - Q.
+     * - L8: left = B + 4Q, right = B - 2Q.
+     * - L3: left = B, right = B + Q.
+     * - L2: left = B - Q, right = B + 2Q.
+     * - L1: left = B - 2Q, right = B + 4Q.
+     * If multiple sensors on one side are active, the farthest one wins.
+     */
+    leftLevel = 0;
+    if ((sensorMask & (1U << 0)) != 0U) {
+        leftLevel = 3;
+    } else if ((sensorMask & (1U << 1)) != 0U) {
+        leftLevel = 2;
+    } else if ((sensorMask & (1U << 2)) != 0U) {
+        leftLevel = 1;
+    }
+
+    rightLevel = 0;
+    if ((sensorMask & (1U << 7)) != 0U) {
+        rightLevel = 3;
+    } else if ((sensorMask & (1U << 6)) != 0U) {
+        rightLevel = 2;
+    } else if ((sensorMask & (1U << 5)) != 0U) {
+        rightLevel = 1;
+    }
+
+    leftTarget = TRACK_BASE_RPM;
+    rightTarget = TRACK_BASE_RPM;
+
+    if (rightLevel > leftLevel) {
+        if (rightLevel == 1) {
+            leftTarget += TRACK_WEIGHT_Q;
+        } else if (rightLevel == 2) {
+            leftTarget += (2 * TRACK_WEIGHT_Q);
+            rightTarget -= TRACK_WEIGHT_Q;
+        } else {
+            leftTarget += (4 * TRACK_WEIGHT_Q);
+            rightTarget -= (2 * TRACK_WEIGHT_Q);
+        }
+        deviation = rightLevel;
+    } else if (leftLevel > rightLevel) {
+        if (leftLevel == 1) {
+            rightTarget += TRACK_WEIGHT_Q;
+        } else if (leftLevel == 2) {
+            rightTarget += (2 * TRACK_WEIGHT_Q);
+            leftTarget -= TRACK_WEIGHT_Q;
+        } else {
+            rightTarget += (4 * TRACK_WEIGHT_Q);
+            leftTarget -= (2 * TRACK_WEIGHT_Q);
+        }
+        deviation = -leftLevel;
+    } else {
         deviation = 0;
     }
+
     gTrackLastError = (int16_t) deviation;
     gVisionDeviation = (int16_t) deviation;
-
-    if ((deviation >= -TRACK_CENTER_DEADBAND) && (deviation <= TRACK_CENTER_DEADBAND)) {
-        deviation = 0;
-    }
-
-    turn = deviation * TRACK_TURN_GAIN;
-    turn = clamp_i32(turn, -TRACK_TURN_LIMIT, TRACK_TURN_LIMIT);
-    leftTarget = TRACK_BASE_RPM + turn;
-    rightTarget = TRACK_BASE_RPM - turn;
 
     leftTarget = clamp_i32(leftTarget, 0, TRACK_MAX_RPM);
     rightTarget = clamp_i32(rightTarget, 0, TRACK_MAX_RPM);
     Motor_SetTargetRPM(leftTarget, rightTarget);
+    return false;
 }
 
 static void k230_parse_byte(uint8_t data)
@@ -705,7 +803,7 @@ static void k230_parse_byte(uint8_t data)
 
 static void k230_handle_packet(uint8_t cmd, uint8_t dh, uint8_t dl)
 {
-    /* CMD 0x01=球坐标 → 转发给步进板 */
+    /* CMD 0x01=球坐�?�?转发给步进板 */
     if (cmd == STEPPER_CMD_BALL) {
         stepper_send_frame(STEPPER_CMD_BALL, dh, dl);
     }
@@ -945,21 +1043,18 @@ static void gpio_write(GPIO_Regs *port, uint32_t pin, bool high)
     }
 }
 
-/* ==================== 步进板 UART 通信 ==================== */
+/* ==================== 步进�?UART 通信 ==================== */
 /*
- * UART1: PA8=TX, PA9=RX → 发给步进板
- * CMD 0x01: ball_x_mm (int16, 由k230_handle_packet转发)
+ * UART1: PA8=TX, PA9=RX �?发给步进�? * CMD 0x01: ball_x_mm (int16, 由k230_handle_packet转发)
  * CMD 0x05: track_type(1B) + speed_cms(1B)
  */
 
 /*
- * 步进板 UART 通信 — UART1: PA8=TX, PA9=RX
- * 需要在 SysConfig 中启用 UART1 外设。
- * 暂时用 GPIO 模拟 TX 占位; SysConfig 配好后删掉 GPIO 部分改用 UART HW 发送。
- */
+ * 步进�?UART 通信 �?UART1: PA8=TX, PA9=RX
+ * 需要在 SysConfig 中启�?UART1 外设�? * 暂时�?GPIO 模拟 TX 占位; SysConfig 配好后删�?GPIO 部分改用 UART HW 发送�? */
 static void stepper_uart_init(void)
 {
-    /* PA8 初始化为 GPIO 输出位 */
+    /* PA8 初始化为 GPIO 输出�?*/
     DL_GPIO_initDigitalOutput(IOMUX_PINCM19);  /* PA8 */
     DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_8);
 }
@@ -972,7 +1067,7 @@ static void stepper_send_frame(uint8_t cmd, uint8_t dh, uint8_t dl)
 
 static void stepper_send_car_status(int32_t leftRpm, int32_t rightRpm)
 {
-    /* SysConfig 未配 UART1 硬件, 暂不发送车速轨道数据 */
+    /* SysConfig 未配 UART1 硬件, 暂不发送车速轨道数�?*/
     (void)leftRpm; (void)rightRpm;
 }
 
